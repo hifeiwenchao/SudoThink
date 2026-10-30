@@ -1,0 +1,38 @@
+name: sudothink
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: sudothink-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      MYSQL_HOST: ${MYSQL_HOST:-mysql-prod}
+      MYSQL_PORT: ${MYSQL_PORT:-3306}
+      REDIS_HOST: ${REDIS_HOST:-redis-prod}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+    expose:
+      - "8000"
+    networks:
+      - sudothink-net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
+    container_name: sudothink-frontend
+    restart: unless-stopped
+    expose:
+      - "80"
+    networks:
+      - sudothink-net
+
+networks:
+  sudothink-net:
+    external: true
+    name: sudothink-net
