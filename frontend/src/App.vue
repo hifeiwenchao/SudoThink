@@ -3,11 +3,13 @@ import { RouterView, RouterLink } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { storeToRefs } from 'pinia'
 import { computed } from 'vue'
+import { isAdminSite } from '@/site'
 
 const userStore = useUserStore()
 const { isLoggedIn, user } = storeToRefs(userStore)
 
 const isAdmin = computed(() => user.value?.is_admin === true)
+const adminSite = isAdminSite()
 
 const onLogout = () => {
   userStore.logout()
@@ -22,11 +24,10 @@ const onLogout = () => {
       </div>
       <div class="nav">
         <RouterLink to="/">首页</RouterLink>
-        <RouterLink v-if="isLoggedIn" to="/articles/new">写文章</RouterLink>
-        <RouterLink v-if="isAdmin" to="/admin">管理后台</RouterLink>
-        <RouterLink v-if="!isLoggedIn" to="/login">登录</RouterLink>
-        <RouterLink v-if="!isLoggedIn" to="/register">注册</RouterLink>
-        <template v-if="isLoggedIn && user">
+        <RouterLink v-if="adminSite && isLoggedIn" to="/articles/new">写文章</RouterLink>
+        <RouterLink v-if="adminSite && isAdmin" to="/admin">管理后台</RouterLink>
+        <RouterLink v-if="adminSite && !isLoggedIn" to="/login">登录</RouterLink>
+        <template v-if="adminSite && isLoggedIn && user">
           <span class="user">你好，{{ user.nickname || user.username }}</span>
           <el-button size="small" @click="onLogout">退出</el-button>
         </template>

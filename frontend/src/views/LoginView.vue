@@ -43,7 +43,6 @@ async function submit() {
       </el-form-item>
       <el-form-item>
         <el-button type="primary" :loading="loading" @click="submit">登录</el-button>
-        <RouterLink to="/register" class="register-link">没有账号？注册</RouterLink>
       </el-form-item>
     </el-form>
   </div>
@@ -56,8 +55,5 @@ async function submit() {
   background: #fff;
   padding: 24px;
   border-radius: 8px;
-}
-.register-link {
-  margin-left: 12px;
 }
 </style>

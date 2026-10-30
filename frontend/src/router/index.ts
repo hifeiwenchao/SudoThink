@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
+import { isAdminSite } from '@/site'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -15,22 +16,18 @@ const routes: RouteRecordRaw[] = [
     path: '/articles/new',
     name: 'article-new',
     component: () => import('@/views/ArticleEditView.vue'),
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, adminSiteOnly: true },
   },
   {
     path: '/login',
     name: 'login',
     component: () => import('@/views/LoginView.vue'),
-  },
-  {
-    path: '/register',
-    name: 'register',
-    component: () => import('@/views/RegisterView.vue'),
+    meta: { adminSiteOnly: true },
   },
   {
     path: '/admin',
     component: () => import('@/views/AdminLayout.vue'),
-    meta: { requiresAuth: true, requiresAdmin: true },
+    meta: { requiresAuth: true, requiresAdmin: true, adminSiteOnly: true },
     children: [
       {
         path: '',
@@ -62,6 +59,14 @@ const router = createRouter({
 })
 
 router.beforeEach((to) => {
+  if (to.meta?.adminSiteOnly && !isAdminSite()) {
+    return { name: 'home' }
+  }
+
+  if (isAdminSite() && to.name === 'home') {
+    return { name: 'admin-dashboard' }
+  }
+
   if (to.meta?.requiresAuth) {
     const token = localStorage.getItem('access_token')
     if (!token) {
@@ -72,7 +77,7 @@ router.beforeEach((to) => {
     const raw = localStorage.getItem('user')
     const user = raw ? JSON.parse(raw) : null
     if (!user || !user.is_admin) {
-      return { name: 'home' }
+      return { name: isAdminSite() ? 'login' : 'home' }
     }
   }
 })

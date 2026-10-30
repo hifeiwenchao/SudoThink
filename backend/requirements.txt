@@ -1,13 +1,16 @@
-sanic==23.12.2
-sanic-ext==23.12.0
-tortoise-orm==0.21.7
-aerich==0.7.2
-aiomysql==0.2.0
-cryptography==43.0.1
-redis[hiredis]==5.0.8
-pydantic==2.9.2
-email-validator==2.2.0
-python-dotenv==1.0.1
-PyJWT==2.9.0
+sanic==25.12.1
+sanic-ext==25.12.0
+tortoise-orm==1.1.9
+aerich==0.10.1
+aiomysql==0.3.2
+# cryptography 47+ currently triggers an illegal-instruction crash on Python 3.15 ARM64.
+cryptography==46.0.3
+redis[hiredis]==8.1.0
+pydantic==2.14.2
+email-validator==2.3.0
+python-dotenv==1.2.4
+PyJWT==2.15.1
+# passlib 1.7.4 is the latest release; bcrypt 5.x is incompatible with it.
 passlib[bcrypt]==1.7.4
-python-slugify==8.0.4
+bcrypt==4.3.0
+python-slugify==9.1.3

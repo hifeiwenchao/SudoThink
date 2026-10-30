@@ -13,5 +13,8 @@ if __name__ == "__main__":
         debug=settings.APP_DEBUG,
         auto_reload=settings.APP_DEBUG,
         access_log=settings.APP_DEBUG,
-        single_process=True,
+        # Sanic does not allow single_process together with auto_reload.
+        # Keep the development reloader enabled and use single-process mode
+        # only for production startup.
+        single_process=not settings.APP_DEBUG,
     )

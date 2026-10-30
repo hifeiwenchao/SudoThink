@@ -5,7 +5,7 @@
 ## 技术栈
 
 ### 后端
-- **Python** 3.11+
+- **Python** 3.15+
 - **Sanic** - 高性能异步 Web 框架
 - **Tortoise-ORM** - 异步 ORM
 - **Aerich** - Tortoise-ORM 的数据库迁移工具
@@ -35,6 +35,7 @@ SudoThink/
 │   │   ├── middlewares/  # 中间件
 │   │   ├── models/       # Tortoise ORM 模型
 │   │   └── schemas/      # Pydantic 数据模型
+│   ├── scripts/          # 数据库和管理员初始化脚本
 │   ├── migrations/       # Aerich 迁移文件
 │   ├── main.py           # 入口
 │   ├── pyproject.toml
@@ -69,8 +70,9 @@ Docker 部署的网络关系如下：
    │
    ▼
 外部 NGINX 容器 :80/:443
-   ├── /       ──> sudothink-frontend:80
-   └── /api/   ──> sudothink-backend:8000
+   ├── sudothink.test/       ──> 公开站点
+   ├── admin.sudothink.test/ ──> 管理站点
+   └── 两个站点的 /api/      ──> sudothink-backend:8000
                               ├──> 外部 MySQL 容器 :3306
                               └──> 外部 Redis 容器 :6379
 ```
@@ -80,12 +82,22 @@ backend、frontend、NGINX、MySQL、Redis 必须加入同一个 Docker 网络�
 ```bash
 docker network create sudothink-net
 
-docker network connect sudothink-net <mysql-container>
-docker network connect sudothink-net <redis-container>
+docker network connect --alias mysql sudothink-net <mysql-container>
+docker network connect --alias redis sudothink-net <redis-container>
 docker network connect sudothink-net <nginx-container>
 ```
 
-如果外部容器已经接入该网络，重复执行 `docker network connect` 会提示已连接，可以跳过。外部容器也可以在各自的 Compose 文件中声明同一个网络：
+`mysql` 和 `redis` 是应用使用的稳定网络别名。如果外部容器已经接入该网络但没有这些别名，需要先断开再用别名重新接入：
+
+```bash
+docker network disconnect sudothink-net <mysql-container>
+docker network connect --alias mysql sudothink-net <mysql-container>
+
+docker network disconnect sudothink-net <redis-container>
+docker network connect --alias redis sudothink-net <redis-container>
+```
+
+如果外部容器已经接入网络并且别名存在，可以跳过这些命令。外部容器也可以在各自的 Compose 文件中声明同一个网络：
 
 ```yaml
 networks:
@@ -121,15 +133,32 @@ REDIS_PASSWORD=
 
 CORS_ORIGINS=https://your-domain.example
 VITE_API_BASE_URL=/api
+
+ADMIN_USERNAME=admin
+ADMIN_EMAIL=admin@example.com
+ADMIN_PASSWORD=change-this-admin-password
 ```
 
 其中 `mysql-prod` 和 `redis-prod` 替换成实际容器名。如果使用网络别名，也可以设置为 `mysql` 和 `redis`。
+请先修改 `ADMIN_PASSWORD`，再执行初始化脚本。管理员账号已存在时，重复执行不会覆盖原密码。
 
 当前 [docker-compose.yml](./docker-compose.yml) 只启动 backend 和 frontend：
 
 ```bash
 docker compose up -d --build
 docker compose ps
+```
+
+如果修改了 `.env` 中的数据库或 Redis 地址，使用 `--force-recreate` 确保 backend 容器读取新环境变量：
+
+```bash
+docker compose up -d --build --force-recreate backend frontend
+```
+
+首次部署或数据库为空时，先初始化数据库、数据表和管理员账号：
+
+```bash
+docker compose run --rm backend python scripts/init_db.py
 ```
 
 由于 MySQL 和 Redis 不再由当前 Compose 管理，请先确认它们已经启动且可以通过共享网络访问。外部 NGINX 应该使用容器名访问应用服务。可以参考 [nginx/conf.d/default.conf](./nginx/conf.d/default.conf)，并按实际容器名调整 upstream；例如：
@@ -158,9 +187,21 @@ curl http://your-domain.example/api/health
 
 通常只需要对外发布 NGINX 的 `80/443` 端口，MySQL、Redis 和 backend 的 `3306/6379/8000` 可以只在 Docker 网络内部访问。
 
+公开站点和管理站点：
+
+- 公开站点：<http://sudothink.test/>，只提供文章浏览，不显示登录、注册、写文章和管理后台入口。
+- 管理站点：<http://admin.sudothink.test/>，使用初始化管理员账号登录并进入管理后台。
+
+本机测试时在 `/etc/hosts` 中加入：
+
+```text
+127.0.0.1 sudothink.test
+127.0.0.1 admin.sudothink.test
+```
+
 ### 本地运行（不使用 Docker）
 
-本地运行需要 Python 3.11+、Node.js、pnpm（或 npm）、MySQL 8 和 Redis 7。MySQL 和 Redis 可以是本机服务，也可以是发布了端口的外部容器。
+本地运行需要 Python 3.15+、Node.js、pnpm（或 npm）、MySQL 8 和 Redis 7。MySQL 和 Redis 可以是本机服务，也可以是发布了端口的外部容器。
 
 先在项目根目录创建环境变量文件：
 
@@ -191,9 +232,8 @@ python -m venv .venv
 source .venv/bin/activate       # Windows PowerShell 使用 .venv\\Scripts\\Activate.ps1
 pip install -r requirements.txt
 
-# 首次运行时初始化 Aerich
-aerich init -t app.core.config.TORTOISE_ORM
-aerich init-db
+# 创建数据库、数据表和管理员账号
+python scripts/init_db.py
 
 python main.py
 ```
@@ -215,7 +255,6 @@ pnpm dev                    # 或 npm run dev
 | 模块 | 方法 | 路径 |
 | --- | --- | --- |
 | 健康检查 | GET | `/api/health` |
-| 注册 | POST | `/api/auth/register` |
 | 登录 | POST | `/api/auth/login` |
 | 文章列表 | GET | `/api/articles` |
 | 文章详情 | GET | `/api/articles/<id>` |

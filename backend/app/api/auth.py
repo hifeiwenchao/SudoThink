@@ -1,13 +1,12 @@
 """鉴权 API。"""
-from pydantic import ValidationError as PydanticValidationError
 from sanic import Blueprint, Request
 
-from app.core.exceptions import UnauthorizedError, ValidationError
+from app.core.exceptions import ForbiddenError, UnauthorizedError
 from app.core.response import success
-from app.core.security import create_access_token, hash_password, verify_password
+from app.core.security import create_access_token, verify_password
 from app.middlewares.auth import login_required
 from app.models.user import User
-from app.schemas.auth import LoginIn, RegisterIn, TokenOut, UserOut
+from app.schemas.auth import LoginIn, TokenOut, UserOut
 
 bp = Blueprint("auth", url_prefix="/auth")
 
@@ -27,27 +26,7 @@ def _user_out(user: User) -> dict:
 
 @bp.post("/register")
 async def register(request: Request):
-    try:
-        payload = RegisterIn(**(request.json or {}))
-    except PydanticValidationError as e:
-        raise ValidationError(str(e))
-
-    if await User.exists(username=payload.username):
-        raise ValidationError("username already exists")
-    if await User.exists(email=payload.email):
-        raise ValidationError("email already exists")
-
-    user = await User.create(
-        username=payload.username,
-        email=payload.email,
-        password_hash=hash_password(payload.password),
-        nickname=payload.nickname or payload.username,
-    )
-    token = create_access_token(user.id, extra_claims={"is_admin": user.is_admin})
-    return success(
-        TokenOut(access_token=token, user=UserOut(**_user_out(user))).model_dump(mode="json"),
-        message="register success",
-    )
+    raise ForbiddenError("registration is disabled")
 
 
 @bp.post("/login")
