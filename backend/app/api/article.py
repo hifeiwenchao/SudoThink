@@ -81,7 +81,7 @@ async def list_articles(request: Request):
 
 @bp.get("/<aid:int>")
 async def get_article(request: Request, aid: int):
-    article = await Article.get_or_none(id=aid)
+    article = await Article.get_or_none(id=aid, is_published=True)
     if article is None:
         raise NotFoundError("article not found")
     article.view_count += 1

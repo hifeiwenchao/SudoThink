@@ -1,11 +1,11 @@
 # 多阶段构建：Node 构建静态资源 -> Nginx 提供静态服务
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-# 启用 corepack 以使用 pnpm/yarn 的版本管理（这里用 npm 即可）
-COPY package.json ./
-RUN npm install --no-audit --no-fund
+# 按锁文件安装依赖，保持本地与 Docker 构建一致。
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
 
 COPY . .
 

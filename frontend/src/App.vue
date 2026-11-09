@@ -76,4 +76,11 @@ const onLogout = () => {
   text-align: center;
   color: #909399;
 }
+@media (max-width: 640px) {
+  .header { height: auto; min-height: 60px; padding: 14px 16px; gap: 12px; flex-wrap: wrap; }
+  .brand { flex-shrink: 0; }
+  .nav { width: 100%; gap: 12px; flex-wrap: wrap; font-size: 13px; }
+  .nav a { white-space: nowrap; }
+  .user { margin-left: auto; }
+}
 </style>

@@ -1,6 +1,7 @@
 """管理后台 - 文章管理。"""
 from sanic import Blueprint, Request
 
+from app.api.article import _serialize
 from app.core.exceptions import ForbiddenError, NotFoundError
 from app.core.response import success
 from app.middlewares.auth import login_required
@@ -13,6 +14,17 @@ bp = Blueprint("admin_articles", url_prefix="")
 def _ensure_admin(user: User) -> None:
     if not user.is_admin:
         raise ForbiddenError("admin only")
+
+
+@bp.get("/articles/<aid:int>")
+@login_required
+async def get_article_admin(request: Request, aid: int):
+    """Read an article for editing without counting a public page view."""
+    _ensure_admin(request.ctx.user)
+    article = await Article.get_or_none(id=aid)
+    if article is None:
+        raise NotFoundError("article not found")
+    return success(await _serialize(article))
 
 
 @bp.get("/articles")

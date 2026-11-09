@@ -16,7 +16,13 @@ const routes: RouteRecordRaw[] = [
     path: '/articles/new',
     name: 'article-new',
     component: () => import('@/views/ArticleEditView.vue'),
-    meta: { requiresAuth: true, adminSiteOnly: true },
+    meta: { requiresAuth: true, requiresAdmin: true, adminSiteOnly: true },
+  },
+  {
+    path: '/articles/:id(\\d+)/edit',
+    name: 'article-edit',
+    component: () => import('@/views/ArticleEditView.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true, adminSiteOnly: true },
   },
   {
     path: '/login',

@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { articleApi, type Article } from '@/api/article'
+import ArticleContent from '@/components/ArticleContent.vue'
 
 const route = useRoute()
 const article = ref<Article | null>(null)
@@ -29,7 +30,8 @@ onMounted(load)
         <span>· {{ new Date(article.created_at).toLocaleString() }}</span>
         <span>· 阅读 {{ article.view_count }}</span>
       </div>
-      <div class="content">{{ article.content }}</div>
+      <img v-if="article.cover" class="cover" :src="article.cover" :alt="article.title" />
+      <ArticleContent :content="article.content" />
       <div class="tags">
         <el-tag v-for="t in article.tags" :key="t.id" type="info" class="tag">
           {{ t.name }}
@@ -54,11 +56,7 @@ onMounted(load)
   display: flex;
   gap: 6px;
 }
-.content {
-  line-height: 1.8;
-  white-space: pre-wrap;
-  color: #303133;
-}
+.cover { display: block; width: 100%; max-height: 400px; object-fit: cover; border-radius: 8px; margin-bottom: 24px; }
 .tags {
   margin-top: 16px;
 }

@@ -32,7 +32,10 @@ onMounted(load)
 
 <template>
   <div>
-    <h2>文章管理</h2>
+    <div class="page-heading">
+      <h2>文章管理</h2>
+      <el-button type="primary" @click="$router.push('/articles/new')">新建文章</el-button>
+    </div>
 
     <el-input
       v-model="keyword"
@@ -58,8 +61,9 @@ onMounted(load)
         </template>
       </el-table-column>
       <el-table-column prop="view_count" label="阅读" width="80" />
-      <el-table-column label="操作" width="100">
+      <el-table-column label="操作" width="170">
         <template #default="{ row }">
+          <el-button size="small" @click="$router.push(`/articles/${row.id}/edit`)">编辑</el-button>
           <el-button size="small" type="danger" @click="handleRemove(row.id)">
             删除
           </el-button>
@@ -80,6 +84,14 @@ onMounted(load)
 </template>
 
 <style scoped>
+.page-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+.page-heading h2 { margin: 0; }
 .pagination {
   margin-top: 16px;
   justify-content: center;

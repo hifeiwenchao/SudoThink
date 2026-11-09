@@ -70,11 +70,11 @@ Docker 部署的网络关系如下：
    │
    ▼
 外部 NGINX 容器 :80/:443
-   ├── sudothink.test/       ──> 公开站点
-   ├── admin.sudothink.test/ ──> 管理站点
+   ├── www.feiwenchao.com/   ──> 公开站点
+   ├── admin.feiwenchao.com/ ──> 管理站点
    └── 两个站点的 /api/      ──> sudothink-backend:8000
-                              ├──> 外部 MySQL 容器 :3306
-                              └──> 外部 Redis 容器 :6379
+                                 ├──> 外部 MySQL 容器 :3306
+                                 └──> 外部 Redis 容器 :6379
 ```
 
 backend、frontend、NGINX、MySQL、Redis 必须加入同一个 Docker 网络。先创建共享网络，并将已经运行的外部容器接入：
@@ -131,7 +131,7 @@ REDIS_PORT=6379
 REDIS_DB=0
 REDIS_PASSWORD=
 
-CORS_ORIGINS=https://your-domain.example
+CORS_ORIGINS=https://www.feiwenchao.com,https://admin.feiwenchao.com
 VITE_API_BASE_URL=/api
 
 ADMIN_USERNAME=admin
@@ -182,26 +182,28 @@ docker exec <nginx-container> nginx -s reload
 部署后检查：
 
 ```bash
-curl http://your-domain.example/api/health
+curl http://www.feiwenchao.com/api/health
 ```
 
 通常只需要对外发布 NGINX 的 `80/443` 端口，MySQL、Redis 和 backend 的 `3306/6379/8000` 可以只在 Docker 网络内部访问。
 
 公开站点和管理站点：
 
-- 公开站点：<http://sudothink.test/>，只提供文章浏览，不显示登录、注册、写文章和管理后台入口。
-- 管理站点：<http://admin.sudothink.test/>，使用初始化管理员账号登录并进入管理后台。
+- 公开站点：<http://www.feiwenchao.com/>，只提供文章浏览，不显示登录、注册、写文章和管理后台入口。
+- 管理站点：<http://admin.feiwenchao.com/>，使用初始化管理员账号登录并进入管理后台。
+
+当前域名备案办理中，先准备应用和站点配置；下方 `hosts` 记录仅用于本机测试。公网 DNS、HTTPS 证书和上线接入待备案通过后单独配置。
 
 本机测试时在 `/etc/hosts` 中加入：
 
 ```text
-127.0.0.1 sudothink.test
-127.0.0.1 admin.sudothink.test
+127.0.0.1 www.feiwenchao.com
+127.0.0.1 admin.feiwenchao.com
 ```
 
 ### 本地运行（不使用 Docker）
 
-本地运行需要 Python 3.15+、Node.js、pnpm（或 npm）、MySQL 8 和 Redis 7。MySQL 和 Redis 可以是本机服务，也可以是发布了端口的外部容器。
+本地运行需要 Python 3.15+、Node.js 22+、pnpm（或 npm）、MySQL 8 和 Redis 7。MySQL 和 Redis 可以是本机服务，也可以是发布了端口的外部容器。
 
 先在项目根目录创建环境变量文件：
 
@@ -218,7 +220,7 @@ MYSQL_HOST=127.0.0.1
 MYSQL_PORT=3306
 REDIS_HOST=127.0.0.1
 REDIS_PORT=6379
-CORS_ORIGINS=http://localhost:5173
+CORS_ORIGINS=http://localhost:5173,http://www.feiwenchao.com:5173,http://admin.feiwenchao.com:5173
 VITE_API_BASE_URL=/api
 ```
 
@@ -249,6 +251,28 @@ pnpm dev                    # 或 npm run dev
 ```
 
 前端默认访问地址为 <http://localhost:5173>。Vite 会将 `/api` 请求代理到 `http://localhost:8000`，因此本地开发时通常保持 `VITE_API_BASE_URL=/api` 即可。
+
+本地调试管理后台时，配置上面的 `/etc/hosts` 记录后访问 <http://admin.feiwenchao.com:5173/>；公开站点可访问 <http://www.feiwenchao.com:5173/>。Vite 已允许这两个域名用于本机测试。
+
+## 管理后台文章创作
+
+在管理站点登录后，进入“文章管理 → 新建文章”，或从顶部“写文章”进入编辑页。
+
+- 正文使用富文本编辑器，支持多级标题、加粗、斜体、下划线、删除线、列表、引用、代码块、对齐、链接、图片和撤销/重做。
+- 右侧设置文章摘要和封面图，点击“预览”检查排版；正文图片通过工具栏填写 HTTP/HTTPS 图片 URL 插入，暂不提供本地文件上传。
+- “保存草稿”保存到后台，“发布文章”使文章在公开站点可见。已有文章可在文章管理列表中点击“编辑”，继续修改草稿或更新已发布内容。
+- 页面显示字数、预计阅读时长和保存状态；有未保存修改时，离开编辑页会提醒。
+
+富文本 HTML 继续保存在现有 `content` 字段中，无需数据库迁移。预览和文章详情统一清洗 HTML 并渲染；已有纯文本正文保留换行展示。草稿仅可通过管理员接口读取，编辑读取不会增加公开阅读量。
+
+前端验证：
+
+```bash
+cd frontend
+npm ci
+npm test
+npm run build
+```
 
 ## 默认 API 路径
 

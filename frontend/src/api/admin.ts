@@ -1,4 +1,5 @@
 import http from './http'
+import type { Article } from './article'
 
 export interface DashboardResp {
   total_users: number
@@ -63,6 +64,9 @@ export const adminApi = {
     return http.get<unknown, PageResp<AdminArticleBrief>>('/admin/articles', {
       params: { page, size, q },
     })
+  },
+  articleDetail(aid: number) {
+    return http.get<unknown, Article>(`/admin/articles/${aid}`)
   },
   removeArticle(aid: number) {
     return http.delete<unknown, void>(`/admin/articles/${aid}`)
