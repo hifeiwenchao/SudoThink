@@ -60,6 +60,6 @@ onMounted(load)
   text-align: center;
 }
 .pending-highlight {
-  border-color: #e6a23c;
+  border-color: var(--el-color-warning);
 }
 </style>

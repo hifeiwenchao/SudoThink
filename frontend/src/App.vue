@@ -4,6 +4,7 @@ import { useUserStore } from '@/stores/user'
 import { storeToRefs } from 'pinia'
 import { computed } from 'vue'
 import { isAdminSite } from '@/site'
+import ThemeSwitcher from '@/components/ThemeSwitcher.vue'
 
 const userStore = useUserStore()
 const { isLoggedIn, user } = storeToRefs(userStore)
@@ -31,6 +32,7 @@ const onLogout = () => {
           <span class="user">你好，{{ user.nickname || user.username }}</span>
           <el-button size="small" @click="onLogout">退出</el-button>
         </template>
+        <ThemeSwitcher />
       </div>
     </el-header>
     <el-main>
@@ -48,13 +50,13 @@ const onLogout = () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid #eee;
-  background: #fff;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+  background: var(--app-surface);
 }
 .brand a {
   font-size: 20px;
   font-weight: 700;
-  color: #303133;
+  color: var(--el-text-color-primary);
   text-decoration: none;
 }
 .nav {
@@ -63,18 +65,18 @@ const onLogout = () => {
   align-items: center;
 }
 .nav a {
-  color: #606266;
+  color: var(--el-text-color-regular);
   text-decoration: none;
 }
 .nav a.router-link-active {
-  color: #409eff;
+  color: var(--el-color-primary);
 }
 .user {
-  color: #606266;
+  color: var(--el-text-color-regular);
 }
 .footer {
   text-align: center;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 @media (max-width: 640px) {
   .header { height: auto; min-height: 60px; padding: 14px 16px; gap: 12px; flex-wrap: wrap; }

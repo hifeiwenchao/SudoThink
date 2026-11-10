@@ -1,15 +1,16 @@
 .article-prose {
-  color: #344256;
+  color: var(--app-text-reading);
   font-size: 16px;
   line-height: 1.9;
   overflow-wrap: anywhere;
 }
 .article-prose > :first-child { margin-top: 0; }
 .article-prose > :last-child { margin-bottom: 0; }
+.article-prose ::selection { background: var(--app-selection-bg); }
 .article-prose p { margin: 0 0 1em; white-space: pre-wrap; }
 .article-prose h1, .article-prose h2, .article-prose h3, .article-prose h4,
 .article-prose h5, .article-prose h6 {
-  color: #1e2d42;
+  color: var(--app-heading);
   line-height: 1.45;
   margin: 1.5em 0 .65em;
   font-weight: 650;
@@ -22,11 +23,11 @@
 .article-prose li > p { margin: .2em 0; }
 .article-prose blockquote {
   margin: 1.2em 0;
-  border-left: 3px solid #80aff5;
+  border-left: 3px solid var(--el-color-primary);
   padding: .8em 1.2em;
   border-radius: 0 6px 6px 0;
-  background: #f3f7fd;
-  color: #67778d;
+  background: var(--app-quote-bg);
+  color: var(--app-quote-text);
 }
 .article-prose blockquote > :last-child { margin-bottom: 0; }
 .article-prose code {
@@ -34,21 +35,21 @@
   border-radius: 4px;
   font-family: 'SFMono-Regular', Consolas, monospace;
   font-size: .86em;
-  color: #395c98;
-  background: #eef3fa;
+  color: var(--app-code-text);
+  background: var(--app-code-bg);
 }
 .article-prose pre {
   overflow-x: auto;
   padding: 20px 22px;
   margin: 1.2em 0;
   border-radius: 8px;
-  background: #202d40;
-  color: #e1e9f6;
+  background: var(--app-code-block-bg);
+  color: var(--app-code-block-text);
   white-space: pre;
   line-height: 1.7;
   tab-size: 2;
 }
 .article-prose pre code { color: inherit; background: none; padding: 0; font-size: 13px; }
 .article-prose img { display: block; max-width: 100%; height: auto; margin: 1.2em auto; border-radius: 6px; }
-.article-prose a { color: #397de0; text-decoration: underline; text-underline-offset: 3px; }
-.article-prose hr { border: 0; border-top: 1px solid #e7ebf2; margin: 2em 0; }
+.article-prose a { color: var(--el-color-primary); text-decoration: underline; text-underline-offset: 3px; }
+.article-prose hr { border: 0; border-top: 1px solid var(--el-border-color-lighter); margin: 2em 0; }

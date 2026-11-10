@@ -164,18 +164,20 @@ function removeLink() {
 </template>
 
 <style scoped>
-.rich-editor { background: #fff; }
-.editor-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding: 10px 20px; background: #f8fafc; border-top: 1px solid #edf0f5; border-bottom: 1px solid #edf0f5; }
+.rich-editor { background: var(--app-surface); }
+.editor-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding: 10px 20px; background: var(--app-surface-muted); border-top: 1px solid var(--el-border-color-lighter); border-bottom: 1px solid var(--el-border-color-lighter); }
 .block-select { width: 94px; }
 .align-select { width: 86px; }
 .block-select :deep(.el-select__wrapper), .align-select :deep(.el-select__wrapper) { box-shadow: none; background: transparent; }
-.toolbar-divider { height: 17px; width: 1px; background: #e1e7ef; margin: 0 3px; }
+.block-select :deep(.el-select__wrapper.is-focused), .align-select :deep(.el-select__wrapper.is-focused) { outline: 2px solid var(--el-color-primary); outline-offset: -2px; }
+.toolbar-divider { height: 17px; width: 1px; background: var(--el-border-color); margin: 0 3px; }
 .tool-group { display: flex; align-items: center; gap: 2px; }
-.tool-button { display: inline-flex; align-items: center; justify-content: center; width: 29px; height: 30px; padding: 0; background: transparent; border: 0; border-radius: 5px; color: #65748a; cursor: pointer; font: inherit; font-size: 15px; transition: background .15s, color .15s; }
-.tool-button:hover:not(:disabled) { background: #e9eef6; color: #273c5b; }
-.tool-button[aria-pressed='true'] { color: #3479df; background: #e5efff; }
-.tool-button:focus-visible { outline: 2px solid #75a9f5; outline-offset: 2px; }
-.tool-button:disabled { cursor: not-allowed; opacity: .35; }
+.tool-button { display: inline-flex; align-items: center; justify-content: center; width: 29px; height: 30px; padding: 0; background: transparent; border: 0; border-radius: 5px; color: var(--el-text-color-regular); cursor: pointer; font: inherit; font-size: 15px; transition: background .15s, color .15s; }
+.tool-button:hover:not(:disabled) { background: var(--el-fill-color); color: var(--el-text-color-primary); }
+.tool-button[aria-pressed='true'] { color: var(--el-color-primary); background: var(--el-color-primary-light-9); }
+.tool-button[aria-pressed='true']:hover:not(:disabled) { color: var(--el-color-primary); background: var(--el-color-primary-light-8); }
+.tool-button:focus-visible { outline: 2px solid var(--el-color-primary); outline-offset: 2px; }
+.tool-button:disabled { cursor: not-allowed; color: var(--el-text-color-disabled); }
 .bold { font-weight: 800; }
 .italic { font-style: italic; font-family: Georgia, serif; font-weight: 600; }
 .underline { text-decoration: underline; text-underline-offset: 3px; }
@@ -184,12 +186,12 @@ function removeLink() {
 .code-button { font-family: monospace; font-size: 12px; }
 .list-button { font-size: 24px; }
 .history-tools { margin-left: auto; }
-:deep(.editor-document) { min-height: 440px; padding: 27px 30px 40px; outline: none; }
-:deep(.editor-document p.is-editor-empty:first-child::before) { color: #a5afbd; content: attr(data-placeholder); float: left; height: 0; pointer-events: none; }
-:deep(.editor-document .ProseMirror-selectednode) { outline: 2px solid #75a9f5; }
-.editor-help { padding: 0 28px 19px; color: #a2adbc; font-size: 11px; line-height: 1.7; }
+:deep(.editor-document) { min-height: 440px; padding: 27px 30px 40px; outline: none; caret-color: var(--el-text-color-primary); }
+:deep(.editor-document p.is-editor-empty:first-child::before) { color: var(--el-text-color-placeholder); content: attr(data-placeholder); float: left; height: 0; pointer-events: none; }
+:deep(.editor-document .ProseMirror-selectednode) { outline: 2px solid var(--el-color-primary); }
+.editor-help { padding: 0 28px 19px; color: var(--el-text-color-secondary); font-size: 11px; line-height: 1.7; }
 .is-disabled { opacity: .65; }
-.media-hint { font-size: 12px; color: #8792a2; line-height: 1.7; }
+.media-hint { font-size: 12px; color: var(--el-text-color-secondary); line-height: 1.7; }
 @media (max-width: 640px) {
   .editor-toolbar { padding: 9px 12px; gap: 4px; }
   :deep(.editor-document) { padding: 22px 18px; min-height: 340px; }

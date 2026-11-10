@@ -82,17 +82,17 @@ onMounted(load)
 .title {
   font-size: 18px;
   font-weight: 600;
-  color: #303133;
+  color: var(--el-text-color-primary);
 }
 .meta {
   margin: 6px 0;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 12px;
   display: flex;
   gap: 6px;
 }
 .summary {
-  color: #606266;
+  color: var(--el-text-color-regular);
 }
 .pagination {
   margin-top: 16px;

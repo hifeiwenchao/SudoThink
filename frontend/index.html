@@ -3,6 +3,24 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <script>
+      // 在页面绘制前应用偏好，避免深色模式刷新时闪白。
+      ;(() => {
+        let preference = 'system'
+        try {
+          const saved = localStorage.getItem('sudothink-theme')
+          if (saved === 'light' || saved === 'dark') preference = saved
+        } catch {}
+        const dark = preference === 'dark' || (preference === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+        document.documentElement.classList.toggle('dark', dark)
+        document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
+      })()
+    </script>
+    <style>
+      html { background: #f5f7fa; }
+      html.dark { background: #101214; }
+    </style>
     <title>SudoThink 博客</title>
   </head>
   <body>

@@ -47,18 +47,18 @@ const isAdmin = computed(() => userStore.user?.is_admin === true)
 <style scoped>
 .admin-layout {
   min-height: 100vh;
-  background: #f5f7fa;
+  background: var(--app-page-bg);
 }
 .sidebar {
-  background: #fff;
-  border-right: 1px solid #e6e8eb;
+  background: var(--app-surface);
+  border-right: 1px solid var(--el-border-color);
 }
 .logo {
   margin: 0;
   padding: 16px;
   font-size: 18px;
   text-align: center;
-  color: #303133;
+  color: var(--el-text-color-primary);
 }
 .main {
   padding: 24px;

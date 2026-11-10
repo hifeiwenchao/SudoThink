@@ -59,7 +59,7 @@ async function submit() {
 .auth {
   max-width: 480px;
   margin: 40px auto;
-  background: #fff;
+  background: var(--app-surface);
   padding: 24px;
   border-radius: 8px;
 }

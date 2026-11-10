@@ -96,6 +96,6 @@ onMounted(load)
 }
 .content {
   white-space: pre-wrap;
-  color: #606266;
+  color: var(--el-text-color-regular);
 }
 </style>

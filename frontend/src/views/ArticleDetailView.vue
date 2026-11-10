@@ -45,12 +45,12 @@ onMounted(load)
 .detail {
   max-width: 800px;
   margin: 0 auto;
-  background: #fff;
+  background: var(--app-surface);
   padding: 24px;
   border-radius: 8px;
 }
 .meta {
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 12px;
   margin-bottom: 16px;
   display: flex;
