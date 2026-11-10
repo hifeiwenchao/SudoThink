@@ -49,7 +49,7 @@ const onLogout = () => {
         </RouterLink>
         <div class="blog-header-right">
           <nav class="blog-nav" aria-label="博客导航">
-            <RouterLink to="/#articles" :class="{ 'is-active': route.path !== '/about' && !route.query.category }" :aria-current="route.path === '/' && !route.query.category ? 'page' : undefined"><span>01</span> 文章</RouterLink>
+            <RouterLink to="/#articles" :class="{ 'is-active': (route.path === '/' || route.name === 'article-detail') && !route.query.category }" :aria-current="route.path === '/' && !route.query.category ? 'page' : undefined"><span>01</span> 文章</RouterLink>
             <RouterLink
               v-for="(category, index) in navigationCategories"
               :key="category.id"
@@ -58,7 +58,8 @@ const onLogout = () => {
               :aria-current="route.path === '/' && route.query.category === String(category.id) ? 'page' : undefined"
               :title="category.name"
             ><span>{{ String(index + 2).padStart(2, '0') }}</span><span class="blog-nav-label">{{ category.name }}</span></RouterLink>
-            <RouterLink to="/about" :class="{ 'is-active': route.path === '/about' }"><span>{{ String(navigationCategories.length + 2).padStart(2, '0') }}</span> 关于我</RouterLink>
+            <RouterLink to="/tools" :class="{ 'is-active': route.name === 'tools' }" :aria-current="route.name === 'tools' ? 'page' : undefined"><span>{{ String(navigationCategories.length + 2).padStart(2, '0') }}</span> 工具箱</RouterLink>
+            <RouterLink to="/about" :class="{ 'is-active': route.path === '/about' }" :aria-current="route.path === '/about' ? 'page' : undefined"><span>{{ String(navigationCategories.length + 3).padStart(2, '0') }}</span> 关于我</RouterLink>
           </nav>
           <span class="blog-header-divider" aria-hidden="true" />
           <ThemeSwitcher />
