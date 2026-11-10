@@ -7,6 +7,7 @@ services:
       dockerfile: Dockerfile
       args:
         DEBIAN_MIRROR: ${DEBIAN_MIRROR:-https://mirrors.aliyun.com}
+        PYPI_INDEX_URL: ${PYPI_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
     container_name: sudothink-backend
     restart: unless-stopped
     env_file:

@@ -150,9 +150,9 @@ VITE_API_BASE_URL=/api
 
 #### 构建、初始化并启动应用
 
-后端 Dockerfile 默认使用 `https://mirrors.aliyun.com` 作为 Debian APT 镜像源。如需使用官方源，在项目 `.env` 中设置 `DEBIAN_MIRROR=https://deb.debian.org`；填写根 URL，不要添加 `/debian` 后缀。Compose 会将该变量作为 backend 的构建参数传入，修改后需重新构建后端镜像，不会影响已运行的容器。
+后端 Dockerfile 默认使用 `https://mirrors.aliyun.com` 作为 Debian APT 镜像源。如需使用官方源，在项目 `.env` 中设置 `DEBIAN_MIRROR=https://deb.debian.org`；填写根 URL，不要添加 `/debian` 后缀。Python 包源默认使用 `https://mirrors.aliyun.com/pypi/simple`，可在 `.env` 中设置 `PYPI_INDEX_URL=https://pypi.org/simple` 改用官方源。Compose 会将这两个变量作为 backend 的构建参数传入，修改后需重新构建后端镜像，不会影响已运行的容器。
 
-Docker 镜像源、APT 软件源和 Python 包源相互独立；配置 Docker 镜像加速不会加速构建中的 APT 下载。
+Docker 镜像源、APT 软件源和 Python 包源相互独立；配置 Docker 镜像加速不会加速构建中的 APT 或 pip 下载。
 
 在项目根目录依次构建后端、前端，再初始化并启动应用：
 
@@ -170,7 +170,7 @@ docker compose ps
 docker compose logs --tail=100 backend
 ```
 
-如果后端构建较慢，使用 `docker compose --progress plain build backend` 查看具体耗时步骤。APT 默认设置网络超时 30 秒、失败重试 3 次；持续低速下载仍可能耗时较长，需要根据日志检查软件源和网络。
+如果后端构建较慢，使用 `docker compose --progress plain build backend` 查看具体耗时步骤。持续低速下载仍可能耗时较长，需要根据日志检查软件源和网络。
 
 #### 接入外部 NGINX
 

@@ -17,7 +17,8 @@ RUN sed -i "s|http://deb.debian.org|${DEBIAN_MIRROR%/}|g" /etc/apt/sources.list.
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt /app/requirements.txt
-RUN pip install -r /app/requirements.txt
+ARG PYPI_INDEX_URL=https://mirrors.aliyun.com/pypi/simple
+RUN pip install --index-url "${PYPI_INDEX_URL}" --timeout 30 --retries 3 -r /app/requirements.txt
 
 COPY . /app
 
