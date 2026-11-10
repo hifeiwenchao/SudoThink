@@ -99,7 +99,7 @@ docker network inspect sudothink-data sudothink-proxy --format '{{.Name}}'
 
 [应用 Compose](./docker-compose.yml) 只管理 backend、frontend。在应用 `.env` 中将 `DEPENDS_MAIN_NETWORK`、`DEPENDS_PROXY_NETWORK` 设置为实际共享网络名；使用上面的示例时，分别填写 `sudothink-data`、`sudothink-proxy`。已有网络和容器连接可复用，跳过相应创建、接入命令，并确认 MySQL、Redis 分别具有 `mysql`、`redis` 网络别名。
 
-前端容器内的 NGINX 监听 `8100`，Compose 通过 `expose` 声明该端口，不新增宿主机端口映射。外部 NGINX 通过 `sudothink-proxy` 网络访问前端容器，并提供宿主机的 `80`、`443` 入口。
+前端容器内的 NGINX 监听 `8100`，Compose 默认将宿主机的 `8100` 映射到该端口，支持通过 IP 直接访问公开博客。外部 NGINX 通过 `sudothink-proxy` 网络访问前端容器，并提供宿主机的 `80`、`443` 域名入口。
 
 #### 准备生产环境变量
 
@@ -117,6 +117,7 @@ DEPENDS_MAIN_NETWORK=sudothink-data
 DEPENDS_PROXY_NETWORK=sudothink-proxy
 APP_ENV=production
 APP_DEBUG=false
+FRONTEND_HTTP_PORT=8100
 
 MYSQL_HOST=mysql
 MYSQL_PORT=3306
@@ -173,6 +174,20 @@ docker compose logs --tail=100 backend
 ```
 
 如果后端构建较慢，使用 `docker compose --progress plain build backend` 查看具体耗时步骤。持续低速下载仍可能耗时较长，需要根据日志检查软件源和网络。
+
+#### 通过 IP 和端口访问
+
+应用启动后，公开博客可通过 `http://服务器IP:8100/` 访问，无需配置域名、证书或外部 NGINX。前端容器同时将同源的 `/api/` 请求转发到后端，`VITE_API_BASE_URL` 保持 `/api`。
+
+宿主机端口由 `.env` 中的 `FRONTEND_HTTP_PORT` 控制，默认 `8100`。如端口已占用，可改为其他空闲端口，再执行 `docker compose up -d frontend` 应用配置。确保服务器防火墙和云安全组允许访问所选 TCP 端口。
+
+管理后台继续通过独立管理域名识别，IP 入口展示公开博客。域名访问仍使用下文的 HTTPS 配置，`80` 端口自动跳转到 HTTPS。
+
+可以直接检查同源 API：
+
+```bash
+curl --fail http://服务器IP:8100/api/health
+```
 
 #### 接入外部 NGINX
 
