@@ -49,7 +49,7 @@ SudoThink/
 ├── nginx/                # NGINX 反向代理配置
 │   ├── nginx.conf
 │   └── conf.d/sudothink.conf
-├── docker-compose.yml          # 应用服务，复用 depends 的两个外部网络
+├── docker-compose.yml          # 应用服务，接入外部数据网络和代理网络
 ├── .env.example                # 统一环境配置模板，默认用于生产部署
 └── README.md
 ```
@@ -61,51 +61,58 @@ SudoThink/
 1. **Docker 部署**：MySQL、Redis、NGINX 由外部容器提供，当前项目的 Compose 只负责构建和运行 backend、frontend。
 2. **本地运行**：后端直接由 Python 启动，前端由 Vite 启动；MySQL 和 Redis 可以使用本机服务，也可以使用对外发布端口的容器服务。
 
-### Docker 部署（复用 /opt/apps/depends）
+### Docker 部署（外部基础设施容器）
 
-应用目录为 `/opt/apps/SudoThink`，MySQL、Redis、NGINX 由 `/opt/apps/depends` 中独立的 Compose 管理。应用复用基础服务已有的两个网络：
+MySQL、Redis、NGINX 由外部容器提供，可以由各自独立的 Compose 管理。应用通过两个共享 Docker 网络连接这些服务。下面使用 `sudothink-data`、`sudothink-proxy` 作为示例网络名：
 
 | 服务 | Docker 网络 | 用途 |
 | --- | --- | --- |
-| MySQL、Redis | `depends_main` | 数据库和缓存 |
-| backend | `depends_main`、`depends_proxy` | 访问数据库，并接收代理请求 |
-| frontend | `depends_proxy` | 提供前端静态资源 |
-| 外部 NGINX | `depends_proxy` | 代理两个站点及 API |
+| MySQL、Redis | `sudothink-data` | 数据库和缓存 |
+| backend | `sudothink-data`、`sudothink-proxy` | 访问数据库，并接收代理请求 |
+| frontend | `sudothink-proxy` | 提供前端静态资源 |
+| 外部 NGINX | `sudothink-proxy` | 代理两个站点及 API |
 
 ```text
-外部 NGINX（depends_proxy）
-   ├── www.feiwenchao.com/   ──> sudothink-frontend:80
-   ├── admin.feiwenchao.com/ ──> sudothink-frontend:80
+外部 NGINX（sudothink-proxy）
+   ├── www.example.com/   ──> sudothink-frontend:80
+   ├── admin.example.com/ ──> sudothink-frontend:80
    └── 两个站点的 /api/      ──> sudothink-backend:8000
-                                      │ depends_main
+                                      │ sudothink-data
                                       ├──> mysql:3306
                                       └──> redis:6379
 ```
 
-先确认基础服务和网络已经就绪：
+下文的 `www.example.com`、`admin.example.com` 为示例域名；`mysql-container`、`redis-container`、`nginx-container` 和 `/path/to/...` 为容器名、路径占位值，使用时替换为实际配置。
+
+先启动外部基础服务，再创建共享网络并接入对应容器：
 
 ```bash
-cd /opt/apps/depends
-docker compose ps
-docker network inspect depends_main depends_proxy --format '{{.Name}}'
+docker network create sudothink-data
+docker network create sudothink-proxy
+
+docker network connect --alias mysql sudothink-data mysql-container
+docker network connect --alias redis sudothink-data redis-container
+docker network connect sudothink-proxy nginx-container
+
+docker network inspect sudothink-data sudothink-proxy --format '{{.Name}}'
 ```
 
-[应用 Compose](./docker-compose.yml) 只管理 backend、frontend，两个外部网络的默认名称为 `depends_main`、`depends_proxy`。如果基础服务使用了其他 Compose 项目名，在应用 `.env` 中将 `DEPENDS_MAIN_NETWORK`、`DEPENDS_PROXY_NETWORK` 设置为实际网络名称；这些网络需要由基础服务先创建，并包含表中对应的服务。
+[应用 Compose](./docker-compose.yml) 只管理 backend、frontend。在应用 `.env` 中将 `DEPENDS_MAIN_NETWORK`、`DEPENDS_PROXY_NETWORK` 设置为实际共享网络名；使用上面的示例时，分别填写 `sudothink-data`、`sudothink-proxy`。已有网络和容器连接可复用，跳过相应创建、接入命令，并确认 MySQL、Redis 分别具有 `mysql`、`redis` 网络别名。
 
 #### 准备生产环境变量
 
-统一使用 [.env.example](./.env.example)，模板默认采用生产模式。如果已有 `.env`，按模板合并缺少的配置，保留已经验证的数据库、Redis 密码：
+在项目根目录使用 [.env.example](./.env.example) 创建 `.env`，模板默认采用生产模式。如果已有 `.env`，按模板合并缺少的配置，保留实际数据库、Redis 凭据：
 
 ```bash
-cd /opt/apps/SudoThink
+cd /path/to/SudoThink
 test -f .env || cp .env.example .env
 ```
 
 需要确认的配置包括：
 
 ```dotenv
-DEPENDS_MAIN_NETWORK=depends_main
-DEPENDS_PROXY_NETWORK=depends_proxy
+DEPENDS_MAIN_NETWORK=sudothink-data
+DEPENDS_PROXY_NETWORK=sudothink-proxy
 APP_ENV=production
 APP_DEBUG=false
 
@@ -116,22 +123,37 @@ REDIS_HOST=redis
 REDIS_PORT=6379
 
 ADMIN_USERNAME=admin
-ADMIN_EMAIL=admin@feiwenchao.com
+ADMIN_EMAIL=admin@example.com
 ADMIN_PASSWORD=replace-with-a-strong-admin-password
+
+CORS_ORIGINS=https://www.example.com,https://admin.example.com
+VITE_API_BASE_URL=/api
 ```
 
-将模板中的应用密钥、JWT 密钥及密码占位值替换为实际值。`MYSQL_USER`、`MYSQL_PASSWORD` 对应已有数据库账号；`REDIS_PASSWORD` 与基础 Redis 服务一致。容器内通过网络别名 `mysql`、`redis` 连接基础服务，`VITE_API_BASE_URL` 保持 `/api`。
+将模板中的应用密钥、JWT 密钥、密码、邮箱和域名替换为实际值。`MYSQL_USER`、`MYSQL_PASSWORD` 对应已有数据库账号；`REDIS_PASSWORD` 与外部 Redis 服务一致，未启用密码认证时留空。容器内通过网络别名 `mysql`、`redis` 连接基础服务，`VITE_API_BASE_URL` 保持 `/api`。`CORS_ORIGINS` 应与实际访问的协议、域名和端口一致，使用 HTTP 时填写对应的 HTTP Origin。
 
-`MYSQL_USER` 对应账号必须已存在，并具有目标数据库的建表和数据读写权限。建库使用的账号还需要创建数据库的权限，可通过 `MYSQL_ADMIN_USER`、`MYSQL_ADMIN_PASSWORD` 单独配置。初始化脚本会创建数据库、表和博客管理员，不会创建或授权 MySQL 账号；当前服务器已有的 root 账号可以用于首次初始化。
+`MYSQL_USER` 对应账号必须已存在，并具有目标数据库的建表和数据读写权限。建库使用的账号还需要创建数据库的权限，可通过 `MYSQL_ADMIN_USER`、`MYSQL_ADMIN_PASSWORD` 单独配置。初始化脚本会创建数据库、表和博客管理员，不会创建或授权 MySQL 账号。
 
 管理员已存在时，重复初始化会保留原密码；修改 `.env` 中的 `ADMIN_PASSWORD` 不会重置已有账号密码。
 
+#### 配置站点域名
+
+公开站点与管理站点共用同一份前端，通过访问域名区分。部署前按实际域名调整：
+
+| 配置位置 | 调整内容 |
+| --- | --- |
+| [nginx/conf.d/sudothink.conf](./nginx/conf.d/sudothink.conf) | 将 `server_name` 设置为公开站点和管理站点域名，例如 `www.example.com admin.example.com` |
+| [frontend/src/site.ts](./frontend/src/site.ts) | 将 `ADMIN_SITE_HOST` 设置为管理站域名，例如 `admin.example.com`，只填写主机名 |
+| `.env` | 设置对应的 `CORS_ORIGINS` 和管理员邮箱 `ADMIN_EMAIL` |
+
+当前管理站主机名在 `frontend/src/site.ts` 中配置，修改后需要重新构建前端。
+
 #### 构建、初始化并启动应用
 
-服务器为 2 核、约 1.6 GiB 内存，按后端、前端顺序构建：
+在项目根目录依次构建后端、前端，再初始化并启动应用：
 
 ```bash
-cd /opt/apps/SudoThink
+cd /path/to/SudoThink
 docker compose config --quiet
 docker compose build backend
 docker compose build frontend
@@ -144,42 +166,42 @@ docker compose ps
 docker compose logs --tail=100 backend
 ```
 
-#### 备案通过后接入外部 NGINX
+#### 接入外部 NGINX
 
-[nginx/conf.d/sudothink.conf](./nginx/conf.d/sudothink.conf) 已配置 `www.feiwenchao.com`、`admin.feiwenchao.com`，使用稳定容器名 `sudothink-backend:8000`、`sudothink-frontend:80` 作为 upstream。两个站点的 `/api/` 转发给后端，其余页面请求转发给前端。
+[nginx/conf.d/sudothink.conf](./nginx/conf.d/sudothink.conf) 使用稳定容器名 `sudothink-backend:8000`、`sudothink-frontend:80` 作为 upstream。两个站点的 `/api/` 转发给后端，其余页面请求转发给前端。
 
-应用启动后，将独立站点文件放入基础 NGINX 的挂载目录，再检查并重载配置：
+应用启动并配置域名后，将独立站点文件放入外部 NGINX 的 `conf.d` 挂载目录，再检查并重载配置。目标目录需要映射到容器内已被 NGINX 加载的配置目录：
 
 ```bash
-cd /opt/apps/SudoThink
-cp nginx/conf.d/sudothink.conf /opt/apps/depends/setup/nginx/conf/conf.d/sudothink.conf
-docker exec depends-nginx-1 nginx -t && docker exec depends-nginx-1 nginx -s reload
+cd /path/to/SudoThink
+cp nginx/conf.d/sudothink.conf /path/to/nginx/conf.d/sudothink.conf
+docker exec nginx-container nginx -t && docker exec nginx-container nginx -s reload
 ```
 
-HTTP 入口为 <http://www.feiwenchao.com/> 和 <http://admin.feiwenchao.com/>。HTTPS 需要配置对应证书，并在 `/opt/apps/depends` 的 NGINX 服务中发布 `443` 端口；启用 HTTPS 后同步确认 `CORS_ORIGINS` 包含两个 HTTPS Origin。
+按示例域名配置后，HTTP 入口为 <http://www.example.com/> 和 <http://admin.example.com/>。HTTPS 需要在外部 NGINX 配置对应证书并发布 `443` 端口；启用 HTTPS 后同步确认 `CORS_ORIGINS` 包含两个 HTTPS Origin。
 
 外部入口配置完成、域名解析到服务器后，检查两个站点的 API：
 
 ```bash
-curl --fail http://www.feiwenchao.com/api/health
-curl --fail http://admin.feiwenchao.com/api/health
+curl --fail http://www.example.com/api/health
+curl --fail http://admin.example.com/api/health
 ```
 
-健康检查应返回 `code: 0`，且 `data.status` 为 `ok`、`data.redis` 为 `true`。公网访问应使用实际域名解析；如果本机曾为开发添加下面的 hosts 记录，先移除它们。
+健康检查应返回 `code: 0`，且 `data.status` 为 `ok`、`data.redis` 为 `true`。公网访问前，确认实际域名已解析到部署服务器。
 
 #### 更新应用和环境变量
 
 代码更新后先重复构建步骤；修改 `.env` 后重建应用容器以读取新配置：
 
 ```bash
-cd /opt/apps/SudoThink
+cd /path/to/SudoThink
 docker compose up -d --force-recreate backend frontend
 ```
 
 应用容器重建后，NGINX 需要重新解析 upstream 的容器 IP：
 
 ```bash
-docker exec depends-nginx-1 nginx -t && docker exec depends-nginx-1 nginx -s reload
+docker exec nginx-container nginx -t && docker exec nginx-container nginx -s reload
 ```
 
 ### 本地运行（不使用 Docker）
@@ -201,9 +223,12 @@ MYSQL_HOST=127.0.0.1
 MYSQL_PORT=3306
 REDIS_HOST=127.0.0.1
 REDIS_PORT=6379
-CORS_ORIGINS=http://localhost:5173,http://www.feiwenchao.com:5173,http://admin.feiwenchao.com:5173
+CORS_ORIGINS=http://localhost:5173,http://sudothink.test:5173,http://admin.sudothink.test:5173
 VITE_API_BASE_URL=/api
+ADMIN_EMAIL=admin@example.com
 ```
+
+同时填写应用密钥、JWT 密钥、数据库及 Redis 凭据和初始管理员密码，具体含义见上面的环境变量说明。
 
 如果 MySQL 或 Redis 在其他服务器上运行，则把 `MYSQL_HOST` 或 `REDIS_HOST` 改为对应服务器地址，并确保端口可访问。Docker 内部容器名（例如 `mysql-prod`）不能直接用于宿主机上的本地 Python 进程。
 
@@ -233,14 +258,16 @@ pnpm dev                    # 或 npm run dev
 
 前端默认访问地址为 <http://localhost:5173>。Vite 会将 `/api` 请求代理到 `http://localhost:8000`，因此本地开发时通常保持 `VITE_API_BASE_URL=/api` 即可。
 
-本地调试两个站点时，在本机 `/etc/hosts` 中加入：
+本地调试两个站点时，可以使用 `sudothink.test` 和 `admin.sudothink.test`。先将 [frontend/src/site.ts](./frontend/src/site.ts) 的 `ADMIN_SITE_HOST` 改为 `admin.sudothink.test`，并将这两个域名加入 [frontend/vite.config.ts](./frontend/vite.config.ts) 的 `server.allowedHosts`，然后重启 Vite。
+
+在本机 `/etc/hosts` 中加入：
 
 ```text
-127.0.0.1 www.feiwenchao.com
-127.0.0.1 admin.feiwenchao.com
+127.0.0.1 sudothink.test
+127.0.0.1 admin.sudothink.test
 ```
 
-这些记录仅用于本机 Vite 开发。管理后台访问 <http://admin.feiwenchao.com:5173/>，公开站点访问 <http://www.feiwenchao.com:5173/>；Vite 已允许这两个域名。需要访问公网部署时，移除这些 hosts 记录以恢复实际域名解析。
+管理后台访问 <http://admin.sudothink.test:5173/>，公开站点访问 <http://sudothink.test:5173/>。这些记录仅用于本机开发；生产构建前，将 `ADMIN_SITE_HOST` 调整为实际管理域名。
 
 ## 管理后台文章创作
 
