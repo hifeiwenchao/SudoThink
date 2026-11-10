@@ -103,7 +103,7 @@ html.dark .blog-shell {
 .blog-header-divider { width: 1px; height: 22px; flex-shrink: 0; background: var(--blog-border); }
 .blog-shell .theme-switcher { min-height: 33px; padding: 0 9px; border-color: var(--blog-border); border-radius: 6px; background: var(--blog-surface); color: var(--blog-muted); }
 .blog-shell .theme-switcher:hover { color: var(--blog-accent); border-color: var(--blog-accent); }
-.blog-shell .theme-switcher select { font-family: var(--blog-mono); font-size: 11px; }
+.blog-shell .theme-switcher { font-family: var(--blog-mono); font-size: 11px; }
 .blog-footer { border-top: 1px solid var(--blog-border); margin-top: 72px; }
 .blog-footer-inner { width: min(1120px, calc(100% - 64px)); margin: 0 auto; padding: 28px 0 25px; }
 .blog-footer-note { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--blog-muted); }
