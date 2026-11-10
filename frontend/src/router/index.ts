@@ -8,6 +8,11 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/HomeView.vue'),
   },
   {
+    path: '/about',
+    name: 'about',
+    component: () => import('@/views/AboutView.vue'),
+  },
+  {
     path: '/articles/:id(\\d+)',
     name: 'article-detail',
     component: () => import('@/views/ArticleDetailView.vue'),
@@ -51,6 +56,21 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/AdminArticles.vue'),
       },
       {
+        path: 'categories',
+        name: 'admin-categories',
+        component: () => import('@/views/AdminCategories.vue'),
+      },
+      {
+        path: 'tags',
+        name: 'admin-tags',
+        component: () => import('@/views/AdminTags.vue'),
+      },
+      {
+        path: 'about',
+        name: 'admin-about',
+        component: () => import('@/views/AdminAbout.vue'),
+      },
+      {
         path: 'comments',
         name: 'admin-comments',
         component: () => import('@/views/AdminComments.vue'),
@@ -62,6 +82,14 @@ const routes: RouteRecordRaw[] = [
 const router = createRouter({
   history: createWebHistory(),
   routes,
+  scrollBehavior(to, _from, savedPosition) {
+    if (savedPosition) return savedPosition
+    if (to.hash) {
+      if (!document.getElementById(to.hash.slice(1))) return false
+      return { el: to.hash, top: 140, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }
+    }
+    return { top: 0 }
+  },
 })
 
 router.beforeEach((to) => {

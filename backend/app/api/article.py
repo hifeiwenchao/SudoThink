@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pydantic import ValidationError as PydanticValidationError
 from sanic import Blueprint, Request
 from slugify import slugify
+from tortoise.transactions import in_transaction
 
 from app.core.exceptions import ForbiddenError, NotFoundError, ValidationError
 from app.core.response import success
@@ -14,6 +15,14 @@ from app.models.tag import Tag
 from app.schemas.article import ArticleCreateIn, ArticleUpdateIn
 
 bp = Blueprint("article", url_prefix="/articles")
+
+
+async def _selected_tags(tag_ids: list[int]) -> list[Tag]:
+    unique_ids = list(dict.fromkeys(tag_ids))
+    tags = await Tag.filter(id__in=unique_ids)
+    if len(tags) != len(unique_ids):
+        raise ValidationError("tag not found")
+    return tags
 
 
 async def _serialize(article: Article) -> dict:
@@ -97,27 +106,31 @@ async def create_article(request: Request):
     except PydanticValidationError as e:
         raise ValidationError(str(e))
 
-    slug_base = slugify(payload.title) or "article"
-    slug = slug_base
-    suffix = 1
-    while await Article.exists(slug=slug):
-        suffix += 1
-        slug = f"{slug_base}-{suffix}"
+    async with in_transaction():
+        if payload.category_id is not None and not await Category.exists(id=payload.category_id):
+            raise ValidationError("category not found")
+        tags = await _selected_tags(payload.tag_ids)
 
-    article = await Article.create(
-        title=payload.title,
-        slug=slug,
-        summary=payload.summary,
-        content=payload.content,
-        cover=payload.cover,
-        is_published=payload.is_published,
-        published_at=datetime.now(timezone.utc) if payload.is_published else None,
-        author=request.ctx.user,
-        category_id=payload.category_id,
-    )
-    if payload.tag_ids:
-        tags = await Tag.filter(id__in=payload.tag_ids)
-        await article.tags.add(*tags)
+        slug_base = slugify(payload.title) or "article"
+        slug = slug_base
+        suffix = 1
+        while await Article.exists(slug=slug):
+            suffix += 1
+            slug = f"{slug_base}-{suffix}"
+
+        article = await Article.create(
+            title=payload.title,
+            slug=slug,
+            summary=payload.summary,
+            content=payload.content,
+            cover=payload.cover,
+            is_published=payload.is_published,
+            published_at=datetime.now(timezone.utc) if payload.is_published else None,
+            author=request.ctx.user,
+            category_id=payload.category_id,
+        )
+        if tags:
+            await article.tags.add(*tags)
     return success(await _serialize(article), message="created")
 
 
@@ -137,31 +150,32 @@ async def update_article(request: Request, aid: int):
 
     data = payload.model_dump(exclude_unset=True)
     tag_ids = data.pop("tag_ids", None)
-    category_id = data.pop("category_id", None)
+    async with in_transaction():
+        tags = await _selected_tags(tag_ids) if tag_ids is not None else None
+        if "category_id" in data:
+            category_id = data.pop("category_id")
+            if category_id is not None and not await Category.exists(id=category_id):
+                raise ValidationError("category not found")
+            article.category_id = category_id
 
-    publish_changed_to_true = (
-        "is_published" in data
-        and data["is_published"]
-        and not article.is_published
-    )
+        publish_changed_to_true = (
+            "is_published" in data
+            and data["is_published"]
+            and not article.is_published
+        )
 
-    for k, v in data.items():
-        setattr(article, k, v)
+        for k, v in data.items():
+            setattr(article, k, v)
 
-    if category_id is not None:
-        await Category.get_or_none(id=category_id)  # 校验存在
-        article.category_id = category_id
+        if publish_changed_to_true and article.published_at is None:
+            article.published_at = datetime.now(timezone.utc)
 
-    if publish_changed_to_true and article.published_at is None:
-        article.published_at = datetime.now(timezone.utc)
+        await article.save()
 
-    await article.save()
-
-    if tag_ids is not None:
-        await article.tags.clear()
-        if tag_ids:
-            tags = await Tag.filter(id__in=tag_ids)
-            await article.tags.add(*tags)
+        if tags is not None:
+            await article.tags.clear()
+            if tags:
+                await article.tags.add(*tags)
 
     return success(await _serialize(article), message="updated")
 

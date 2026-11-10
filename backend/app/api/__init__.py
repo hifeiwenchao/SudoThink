@@ -2,6 +2,7 @@
 from sanic import Blueprint, Sanic
 
 from app.api.admin import bp as admin_bp
+from app.api.about import bp as about_bp
 from app.api.article import bp as article_bp
 from app.api.auth import bp as auth_bp
 from app.api.category import bp as category_bp
@@ -13,6 +14,7 @@ from app.api.tag import bp as tag_bp
 def register_blueprints(app: Sanic) -> None:
     api = Blueprint.group(
         health_bp,
+        about_bp,
         auth_bp,
         article_bp,
         category_bp,

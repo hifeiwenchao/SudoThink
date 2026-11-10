@@ -5,6 +5,10 @@ repository root or the backend directory::
 
     python backend/scripts/init_db.py
     cd backend && python scripts/init_db.py
+
+Fresh databases include category weights and the About page table. Existing
+databases should run scripts/upgrade_site_content.py to add the weight column;
+safe schema generation does not alter existing tables.
 """
 from __future__ import annotations
 

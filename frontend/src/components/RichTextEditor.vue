@@ -10,7 +10,10 @@ import { ElMessage } from 'element-plus'
 import { sanitizeArticleHtml, toArticleHtml } from '@/utils/articleContent'
 import '@/styles/article.css'
 
-const props = withDefaults(defineProps<{ modelValue: string; disabled?: boolean }>(), { disabled: false })
+const props = withDefaults(defineProps<{ modelValue: string; disabled?: boolean; ariaLabel?: string }>(), {
+  disabled: false,
+  ariaLabel: '文章正文',
+})
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 const dialog = ref<'link' | 'image' | null>(null)
 const media = reactive({ url: '', alt: '' })
@@ -29,7 +32,7 @@ const editor = useEditor({
     TextAlign.configure({ types: ['heading', 'paragraph'] }),
   ],
   editorProps: {
-    attributes: { class: 'article-prose editor-document', role: 'textbox', 'aria-label': '文章正文', 'aria-multiline': 'true' },
+    attributes: { class: 'article-prose editor-document', role: 'textbox', 'aria-label': props.ariaLabel, 'aria-multiline': 'true' },
     transformPastedHTML: sanitizeArticleHtml,
     handlePaste: (_view, event) => {
       if (!event.clipboardData?.files.length) return false

@@ -27,6 +27,15 @@ const isAdmin = computed(() => userStore.user?.is_admin === true)
             <el-icon><i class="el-icon-document" /></el-icon>
             <span>文章管理</span>
           </el-menu-item>
+          <el-menu-item index="/admin/categories">
+            <span>分类管理</span>
+          </el-menu-item>
+          <el-menu-item index="/admin/tags">
+            <span>标签管理</span>
+          </el-menu-item>
+          <el-menu-item index="/admin/about">
+            <span>关于我</span>
+          </el-menu-item>
           <el-menu-item index="/admin/comments">
             <el-icon><i class="el-icon-chat-line-round" /></el-icon>
             <span>评论审核</span>
@@ -62,5 +71,14 @@ const isAdmin = computed(() => userStore.user?.is_admin === true)
 }
 .main {
   padding: 24px;
+  min-width: 0;
+}
+@media (max-width: 700px) {
+  .admin-layout > :deep(.el-container) { flex-direction: column; }
+  .sidebar { width: 100%; border-right: 0; border-bottom: 1px solid var(--el-border-color); }
+  .logo { text-align: left; padding: 12px 16px; }
+  .sidebar :deep(.el-menu) { display: flex; overflow-x: auto; border-right: 0; }
+  .sidebar :deep(.el-menu-item) { flex-shrink: 0; padding: 0 14px; height: 48px; }
+  .main { padding: 18px 14px; }
 }
 </style>

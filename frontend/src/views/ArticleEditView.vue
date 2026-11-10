@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { articleApi, type Article } from '@/api/article'
 import { adminApi } from '@/api/admin'
+import { taxonomyApi, type Category, type TaxonomyItem } from '@/api/taxonomy'
 import RichTextEditor from '@/components/RichTextEditor.vue'
 import ArticleContent from '@/components/ArticleContent.vue'
 import { getArticleText, hasArticleContent, toArticleHtml } from '@/utils/articleContent'
@@ -17,8 +18,20 @@ const previewVisible = ref(false)
 const currentArticleId = ref<number | null>(null)
 const isPublished = ref(false)
 const savedAt = ref('')
+const categories = ref<Category[]>([])
+const categoriesLoading = ref(false)
+const categoriesError = ref(false)
+const tags = ref<TaxonomyItem[]>([])
+const originalTags = ref<TaxonomyItem[]>([])
+const tagsLoading = ref(false)
+const tagsError = ref(false)
+const tagOptions = computed(() => {
+  const options = new Map([...originalTags.value, ...tags.value].map((tag) => [tag.id, tag]))
+  return [...options.values()]
+})
+const selectedTags = computed(() => tagOptions.value.filter((tag) => form.tag_ids.includes(tag.id)))
 let loadRequestId = 0
-const form = reactive({ title: '', summary: '', content: '', cover: '' })
+const form = reactive({ title: '', summary: '', content: '', cover: '', category_id: null as number | null, tag_ids: [] as number[] })
 const snapshot = () => JSON.stringify(form)
 const savedSnapshot = ref(snapshot())
 const isDirty = computed(() => snapshot() !== savedSnapshot.value)
@@ -35,11 +48,14 @@ const saveStatus = computed(() => {
 function fillArticle(article: Article) {
   currentArticleId.value = article.id
   isPublished.value = article.is_published
+  originalTags.value = article.tags
   Object.assign(form, {
     title: article.title,
     summary: article.summary || '',
     content: toArticleHtml(article.content),
     cover: article.cover || '',
+    category_id: article.category?.id || null,
+    tag_ids: article.tags.map((tag) => tag.id),
   })
   savedSnapshot.value = snapshot()
 }
@@ -55,7 +71,8 @@ async function loadArticle() {
     currentArticleId.value = null
     isPublished.value = false
     savedAt.value = ''
-    Object.assign(form, { title: '', summary: '', content: '', cover: '' })
+    Object.assign(form, { title: '', summary: '', content: '', cover: '', category_id: null, tag_ids: [] })
+    originalTags.value = []
     savedSnapshot.value = snapshot()
     return
   }
@@ -99,6 +116,8 @@ async function submit(publish: boolean) {
       content: toArticleHtml(form.content),
       cover: form.cover.trim(),
       is_published: publish,
+      category_id: form.category_id,
+      tag_ids: [...form.tag_ids],
     }
     const isNew = !currentArticleId.value
     const data = currentArticleId.value
@@ -113,6 +132,31 @@ async function submit(publish: boolean) {
     // The shared HTTP interceptor displays the error; retain all entered content.
   } finally {
     submitting.value = null
+  }
+}
+
+async function loadCategories() {
+  categoriesLoading.value = true
+  categoriesError.value = false
+  try {
+    categories.value = await taxonomyApi.categories()
+  } catch {
+    categoriesError.value = true
+  } finally {
+    categoriesLoading.value = false
+  }
+}
+
+async function loadTags() {
+  if (tagsLoading.value) return
+  tagsLoading.value = true
+  tagsError.value = false
+  try {
+    tags.value = await taxonomyApi.tags()
+  } catch {
+    tagsError.value = true
+  } finally {
+    tagsLoading.value = false
   }
 }
 
@@ -144,6 +188,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', beforeUnload)
 })
 watch(() => route.params.id, loadArticle, { immediate: true })
+onMounted(loadCategories)
+onMounted(loadTags)
 </script>
 
 <template>
@@ -209,6 +255,31 @@ watch(() => route.params.id, loadArticle, { immediate: true })
         <section class="panel settings-panel">
           <div class="section-heading"><h2>发布设置</h2><span>文章信息</span></div>
           <el-form :model="form" label-position="top" :disabled="loading || !!submitting">
+            <el-form-item label="文章分类">
+              <el-select v-model="form.category_id" aria-label="文章分类" placeholder="未分类" clearable :empty-values="[null, undefined]" :value-on-clear="null" :loading="categoriesLoading" :disabled="categoriesLoading || categoriesError" style="width: 100%">
+                <el-option v-for="category in categories" :key="category.id" :label="category.name" :value="category.id" />
+              </el-select>
+              <p v-if="categoriesError" class="field-hint">分类加载失败。<el-button link type="primary" @click="loadCategories">重新加载</el-button></p>
+              <p v-else class="field-hint">每篇文章最多选择一个分类；未选择时显示为未分类。</p>
+            </el-form-item>
+            <el-form-item label="文章标签">
+              <el-select
+                v-model="form.tag_ids"
+                aria-label="文章标签"
+                placeholder="选择标签，可多选"
+                multiple
+                filterable
+                fit-input-width
+                clearable
+                :loading="tagsLoading"
+                :disabled="tagsLoading || tagsError"
+                style="width: 100%"
+              >
+                <el-option v-for="tag in tagOptions" :key="tag.id" :label="tag.name" :value="tag.id" />
+              </el-select>
+              <p v-if="tagsError" class="field-hint">标签加载失败，已有选择会保留。<el-button link type="primary" @click="loadTags">重新加载</el-button></p>
+              <p v-else class="field-hint">可选择多个标签，在后台“标签管理”中维护。</p>
+            </el-form-item>
             <el-form-item label="文章摘要">
               <el-input
                 v-model="form.summary"
@@ -246,6 +317,9 @@ watch(() => route.params.id, loadArticle, { immediate: true })
         <div class="preview-label">{{ isPublished ? '已发布文章预览' : '草稿预览 · 尚未发布' }}</div>
         <h1>{{ form.title.trim() || '未命名文章' }}</h1>
         <p class="preview-meta">{{ wordCount.toLocaleString() }} 字 · 预计阅读 {{ readingMinutes }} 分钟</p>
+        <div v-if="selectedTags.length" class="preview-tags" aria-label="预览文章标签">
+          <el-tag v-for="tag in selectedTags" :key="tag.id" size="small" effect="plain">{{ tag.name }}</el-tag>
+        </div>
         <p v-if="form.summary.trim()" class="preview-summary">{{ form.summary }}</p>
         <img v-if="coverUrl" class="preview-cover" :src="coverUrl" alt="文章封面" />
         <ArticleContent v-if="hasArticleContent(form.content)" :content="form.content" />
@@ -302,6 +376,9 @@ watch(() => route.params.id, loadArticle, { immediate: true })
 .preview-label { color: var(--el-text-color-secondary); font-size: 12px; letter-spacing: 1px; }
 .article-preview h1 { font-size: 30px; line-height: 1.45; color: var(--app-heading); margin: 16px 0; }
 .preview-meta { color: var(--el-text-color-secondary); font-size: 12px; margin-bottom: 30px; }
+.preview-tags { display: flex; flex-wrap: wrap; gap: 8px; margin: -10px 0 24px; }
+.preview-tags :deep(.el-tag) { max-width: 100%; height: auto; min-height: 24px; white-space: normal; }
+.preview-tags :deep(.el-tag__content) { overflow-wrap: anywhere; }
 .preview-summary { background: var(--app-quote-bg); border-left: 3px solid var(--el-color-primary); padding: 14px 18px; color: var(--app-quote-text); font-size: 14px; line-height: 1.8; margin-bottom: 26px; }
 .preview-cover { display: block; width: 100%; max-height: 400px; object-fit: cover; border-radius: 8px; margin-bottom: 28px; }
 @media (max-width: 1050px) {

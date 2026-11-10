@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictInt
 
 
 class ArticleCreateIn(BaseModel):
@@ -11,8 +11,8 @@ class ArticleCreateIn(BaseModel):
     content: str
     cover: str = ""
     is_published: bool = False
-    category_id: Optional[int] = None
-    tag_ids: List[int] = []
+    category_id: Optional[StrictInt] = None
+    tag_ids: List[StrictInt] = Field(default_factory=list)
 
 
 class ArticleUpdateIn(BaseModel):
@@ -21,8 +21,8 @@ class ArticleUpdateIn(BaseModel):
     content: Optional[str] = None
     cover: Optional[str] = None
     is_published: Optional[bool] = None
-    category_id: Optional[int] = None
-    tag_ids: Optional[List[int]] = None
+    category_id: Optional[StrictInt] = None
+    tag_ids: Optional[List[StrictInt]] = None
 
 
 class _AuthorBrief(BaseModel):
