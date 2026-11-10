@@ -10,14 +10,15 @@ services:
     env_file:
       - .env
     environment:
-      MYSQL_HOST: ${MYSQL_HOST:-mysql-prod}
+      MYSQL_HOST: ${MYSQL_HOST:-mysql}
       MYSQL_PORT: ${MYSQL_PORT:-3306}
-      REDIS_HOST: ${REDIS_HOST:-redis-prod}
+      REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
     expose:
       - "8000"
     networks:
-      - sudothink-net
+      - main
+      - proxy
 
   frontend:
     build:
@@ -30,9 +31,12 @@ services:
     expose:
       - "80"
     networks:
-      - sudothink-net
+      - proxy
 
 networks:
-  sudothink-net:
+  main:
     external: true
-    name: sudothink-net
+    name: ${DEPENDS_MAIN_NETWORK:-depends_main}
+  proxy:
+    external: true
+    name: ${DEPENDS_PROXY_NETWORK:-depends_proxy}
