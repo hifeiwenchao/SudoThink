@@ -32,7 +32,7 @@ services:
     container_name: sudothink-frontend
     restart: unless-stopped
     expose:
-      - "80"
+      - "8100"
     networks:
       - proxy
 

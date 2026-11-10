@@ -74,8 +74,8 @@ MySQL、Redis、NGINX 由外部容器提供，可以由各自独立的 Compose �
 
 ```text
 外部 NGINX（sudothink-proxy，HTTP 自动跳转 HTTPS）
-   ├── https://www.example.com/   ──> sudothink-frontend:80
-   ├── https://admin.example.com/ ──> sudothink-frontend:80
+   ├── https://www.example.com/   ──> sudothink-frontend:8100
+   ├── https://admin.example.com/ ──> sudothink-frontend:8100
    └── 两个站点的 /api/              ──> sudothink-backend:8000
                                       │ sudothink-data
                                       ├──> mysql:3306
@@ -98,6 +98,8 @@ docker network inspect sudothink-data sudothink-proxy --format '{{.Name}}'
 ```
 
 [应用 Compose](./docker-compose.yml) 只管理 backend、frontend。在应用 `.env` 中将 `DEPENDS_MAIN_NETWORK`、`DEPENDS_PROXY_NETWORK` 设置为实际共享网络名；使用上面的示例时，分别填写 `sudothink-data`、`sudothink-proxy`。已有网络和容器连接可复用，跳过相应创建、接入命令，并确认 MySQL、Redis 分别具有 `mysql`、`redis` 网络别名。
+
+前端容器内的 NGINX 监听 `8100`，Compose 通过 `expose` 声明该端口，不新增宿主机端口映射。外部 NGINX 通过 `sudothink-proxy` 网络访问前端容器，并提供宿主机的 `80`、`443` 入口。
 
 #### 准备生产环境变量
 
@@ -174,7 +176,7 @@ docker compose logs --tail=100 backend
 
 #### 接入外部 NGINX
 
-[nginx/conf.d/sudothink.conf](./nginx/conf.d/sudothink.conf) 默认通过 HTTPS 提供两个站点，支持 TLS 1.2、TLS 1.3 和 HTTP/2。HTTP 请求会返回 `308`，保留主机名、路径和查询参数并跳转到 HTTPS。HTTPS 站点使用稳定容器名 `sudothink-backend:8000`、`sudothink-frontend:80` 作为 upstream；两个站点的 `/api/` 转发给后端，其余页面请求转发给前端。
+[nginx/conf.d/sudothink.conf](./nginx/conf.d/sudothink.conf) 默认通过 HTTPS 提供两个站点，支持 TLS 1.2、TLS 1.3 和 HTTP/2。HTTP 请求会返回 `308`，保留主机名、路径和查询参数并跳转到 HTTPS。HTTPS 站点使用稳定容器名 `sudothink-backend:8000`、`sudothink-frontend:8100` 作为 upstream；两个站点的 `/api/` 转发给后端，其余页面请求转发给前端。
 
 先准备一张同时覆盖公开站点和管理站点域名的有效证书，可使用包含两个域名的 SAN 证书或覆盖两个域名的通配符证书。站点配置使用以下容器内路径：
 
@@ -260,7 +262,7 @@ MYSQL_HOST=127.0.0.1
 MYSQL_PORT=3306
 REDIS_HOST=127.0.0.1
 REDIS_PORT=6379
-CORS_ORIGINS=http://localhost:5173,http://sudothink.test:5173,http://admin.sudothink.test:5173
+CORS_ORIGINS=http://localhost:8100,http://sudothink.test:8100,http://admin.sudothink.test:8100
 VITE_API_BASE_URL=/api
 ADMIN_EMAIL=admin@example.com
 ```
@@ -293,7 +295,7 @@ pnpm install                 # 或 npm install
 pnpm dev                    # 或 npm run dev
 ```
 
-前端默认访问地址为 <http://localhost:5173>。Vite 会将 `/api` 请求代理到 `http://localhost:8000`，因此本地开发时通常保持 `VITE_API_BASE_URL=/api` 即可。
+前端默认访问地址为 <http://localhost:8100>。Vite 会将 `/api` 请求代理到 `http://localhost:8000`，因此本地开发时通常保持 `VITE_API_BASE_URL=/api` 即可。
 
 本地调试两个站点时，可以使用 `sudothink.test` 和 `admin.sudothink.test`。先将 [frontend/src/site.ts](./frontend/src/site.ts) 的 `ADMIN_SITE_HOST` 改为 `admin.sudothink.test`，并将这两个域名加入 [frontend/vite.config.ts](./frontend/vite.config.ts) 的 `server.allowedHosts`，然后重启 Vite。
 
@@ -304,7 +306,7 @@ pnpm dev                    # 或 npm run dev
 127.0.0.1 admin.sudothink.test
 ```
 
-管理后台访问 <http://admin.sudothink.test:5173/>，公开站点访问 <http://sudothink.test:5173/>。这些记录仅用于本机开发；生产构建前，将 `ADMIN_SITE_HOST` 调整为实际管理域名。
+管理后台访问 <http://admin.sudothink.test:8100/>，公开站点访问 <http://sudothink.test:8100/>。这些记录仅用于本机开发；生产构建前，将 `ADMIN_SITE_HOST` 调整为实际管理域名。
 
 ## 管理后台文章创作
 
