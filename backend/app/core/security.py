@@ -4,20 +4,28 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
+import bcrypt
 import jwt
-from passlib.context import CryptContext
 
 from app.core.config import settings
 
-_pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def _password_bytes(password: str) -> bytes:
+    encoded = password.encode("utf-8")
+    # 保留原 Passlib 实现的输入限制。
+    if len(encoded) > 4096:
+        raise ValueError("password exceeds 4096 bytes")
+    if b"\x00" in encoded:
+        raise ValueError("bcrypt does not allow NULL bytes in password")
+    return encoded
 
 
 def hash_password(password: str) -> str:
-    return _pwd_ctx.hash(password)
+    return bcrypt.hashpw(_password_bytes(password), bcrypt.gensalt(rounds=12)).decode("ascii")
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return _pwd_ctx.verify(plain, hashed)
+    return bcrypt.checkpw(_password_bytes(plain), hashed.encode("ascii"))
 
 
 def create_access_token(

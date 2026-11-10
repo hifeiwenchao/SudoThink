@@ -37,11 +37,11 @@ def create_app() -> Sanic:
 
     # Redis 生命周期
     @app.before_server_start
-    async def _setup_redis(app_, _loop):
+    async def _setup_redis(app_):
         await init_redis()
 
     @app.after_server_stop
-    async def _close_redis(app_, _loop):
+    async def _close_redis(app_):
         await close_redis()
 
     return app
