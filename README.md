@@ -73,10 +73,10 @@ MySQL、Redis、NGINX 由外部容器提供，可以由各自独立的 Compose �
 | 外部 NGINX | `sudothink-proxy` | 代理两个站点及 API |
 
 ```text
-外部 NGINX（sudothink-proxy）
-   ├── www.example.com/   ──> sudothink-frontend:80
-   ├── admin.example.com/ ──> sudothink-frontend:80
-   └── 两个站点的 /api/      ──> sudothink-backend:8000
+外部 NGINX（sudothink-proxy，HTTP 自动跳转 HTTPS）
+   ├── https://www.example.com/   ──> sudothink-frontend:80
+   ├── https://admin.example.com/ ──> sudothink-frontend:80
+   └── 两个站点的 /api/              ──> sudothink-backend:8000
                                       │ sudothink-data
                                       ├──> mysql:3306
                                       └──> redis:6379
@@ -130,7 +130,7 @@ CORS_ORIGINS=https://www.example.com,https://admin.example.com
 VITE_API_BASE_URL=/api
 ```
 
-将模板中的应用密钥、JWT 密钥、密码、邮箱和域名替换为实际值。`MYSQL_USER`、`MYSQL_PASSWORD` 对应已有数据库账号；`REDIS_PASSWORD` 与外部 Redis 服务一致，未启用密码认证时留空。容器内通过网络别名 `mysql`、`redis` 连接基础服务，`VITE_API_BASE_URL` 保持 `/api`。`CORS_ORIGINS` 应与实际访问的协议、域名和端口一致，使用 HTTP 时填写对应的 HTTP Origin。
+将模板中的应用密钥、JWT 密钥、密码、邮箱和域名替换为实际值。`MYSQL_USER`、`MYSQL_PASSWORD` 对应已有数据库账号；`REDIS_PASSWORD` 与外部 Redis 服务一致，未启用密码认证时留空。容器内通过网络别名 `mysql`、`redis` 连接基础服务，`VITE_API_BASE_URL` 保持 `/api`。生产环境的 `CORS_ORIGINS` 填写两个站点的 HTTPS Origin，协议、域名和端口须与实际访问地址一致；本地开发的 HTTP 配置见下文。
 
 `MYSQL_USER` 对应账号必须已存在，并具有目标数据库的建表和数据读写权限。建库使用的账号还需要创建数据库的权限，可通过 `MYSQL_ADMIN_USER`、`MYSQL_ADMIN_PASSWORD` 单独配置。初始化脚本会创建数据库、表和博客管理员，不会创建或授权 MySQL 账号。
 
@@ -142,7 +142,7 @@ VITE_API_BASE_URL=/api
 
 | 配置位置 | 调整内容 |
 | --- | --- |
-| [nginx/conf.d/sudothink.conf](./nginx/conf.d/sudothink.conf) | 将 `server_name` 设置为公开站点和管理站点域名，例如 `www.example.com admin.example.com` |
+| [nginx/conf.d/sudothink.conf](./nginx/conf.d/sudothink.conf) | 将 HTTP、HTTPS 两个 `server` 中的 `server_name` 都设置为公开站点和管理站点域名，例如 `www.example.com admin.example.com` |
 | [frontend/src/site.ts](./frontend/src/site.ts) | 将 `ADMIN_SITE_HOST` 设置为管理站域名，例如 `admin.example.com`，只填写主机名 |
 | `.env` | 设置对应的 `CORS_ORIGINS` 和管理员邮箱 `ADMIN_EMAIL` |
 
@@ -168,9 +168,31 @@ docker compose logs --tail=100 backend
 
 #### 接入外部 NGINX
 
-[nginx/conf.d/sudothink.conf](./nginx/conf.d/sudothink.conf) 使用稳定容器名 `sudothink-backend:8000`、`sudothink-frontend:80` 作为 upstream。两个站点的 `/api/` 转发给后端，其余页面请求转发给前端。
+[nginx/conf.d/sudothink.conf](./nginx/conf.d/sudothink.conf) 默认通过 HTTPS 提供两个站点，支持 TLS 1.2、TLS 1.3 和 HTTP/2。HTTP 请求会返回 `308`，保留主机名、路径和查询参数并跳转到 HTTPS。HTTPS 站点使用稳定容器名 `sudothink-backend:8000`、`sudothink-frontend:80` 作为 upstream；两个站点的 `/api/` 转发给后端，其余页面请求转发给前端。
 
-应用启动并配置域名后，将独立站点文件放入外部 NGINX 的 `conf.d` 挂载目录，再检查并重载配置。目标目录需要映射到容器内已被 NGINX 加载的配置目录：
+先准备一张同时覆盖公开站点和管理站点域名的有效证书，可使用包含两个域名的 SAN 证书或覆盖两个域名的通配符证书。站点配置使用以下容器内路径：
+
+| 文件 | 容器内路径 |
+| --- | --- |
+| 完整证书链 | `/etc/ssl/depends/example.com/fullchain.pem` |
+| 证书私钥 | `/etc/ssl/depends/example.com/privkey.pem` |
+
+`example.com` 是证书目录示例，部署时按实际域名目录替换，并同步修改 [nginx/conf.d/sudothink.conf](./nginx/conf.d/sudothink.conf) 中的 `ssl_certificate`、`ssl_certificate_key` 路径。
+
+在外部 NGINX 的 Compose 服务中发布 `80` 和 `443` 端口，并将宿主机证书根目录只读挂载到 `/etc/ssl/depends`。例如，将以下配置合并到已有的外部 NGINX 服务中，保留该服务原有的其他配置；已有 `/etc/ssl/depends` 根目录挂载可直接复用：
+
+```yaml
+ports:
+  - "80:80"
+  - "443:443"
+volumes:
+  - /path/to/nginx/conf.d:/etc/nginx/conf.d:ro
+  - /path/to/certs:/etc/ssl/depends:ro
+```
+
+宿主机 `/path/to/certs/example.com` 目录中必须已存在 `fullchain.pem` 和 `privkey.pem`，且外部 NGINX 能读取这两个文件。端口和挂载由外部 NGINX 的 Compose 管理；修改后在其 Compose 项目中重建 NGINX 容器，使配置生效。
+
+应用启动、域名和证书配置完成后，将独立站点文件放入外部 NGINX 的 `conf.d` 挂载目录，再检查并重载配置。目标目录需要映射到容器内已被 NGINX 加载的配置目录：
 
 ```bash
 cd /path/to/SudoThink
@@ -178,16 +200,25 @@ cp nginx/conf.d/sudothink.conf /path/to/nginx/conf.d/sudothink.conf
 docker exec nginx-container nginx -t && docker exec nginx-container nginx -s reload
 ```
 
-按示例域名配置后，HTTP 入口为 <http://www.example.com/> 和 <http://admin.example.com/>。HTTPS 需要在外部 NGINX 配置对应证书并发布 `443` 端口；启用 HTTPS 后同步确认 `CORS_ORIGINS` 包含两个 HTTPS Origin。
+按示例域名配置后，入口为 <https://www.example.com/> 和 <https://admin.example.com/>。确认生产环境 `CORS_ORIGINS` 配置了两个 HTTPS Origin。证书续签并更新挂载目录中的文件后，也需要先运行 `nginx -t`，成功后再执行 `nginx -s reload`，使 NGINX 加载新证书。
 
 外部入口配置完成、域名解析到服务器后，检查两个站点的 API：
 
 ```bash
-curl --fail http://www.example.com/api/health
-curl --fail http://admin.example.com/api/health
+curl --fail https://www.example.com/api/health
+curl --fail https://admin.example.com/api/health
 ```
 
 健康检查应返回 `code: 0`，且 `data.status` 为 `ok`、`data.redis` 为 `true`。公网访问前，确认实际域名已解析到部署服务器。
+
+检查 HTTP 自动跳转：
+
+```bash
+curl -I http://www.example.com/api/health
+curl -I http://admin.example.com/api/health
+```
+
+应返回 `308`，且 `Location` 分别为 `https://www.example.com/api/health`、`https://admin.example.com/api/health`。
 
 #### 更新应用和环境变量
 
