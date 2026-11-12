@@ -11,6 +11,8 @@ const savedIdentity = ref<Commenter | null>(validateCommenter(remembered) ? null
 const editingIdentity = ref(!savedIdentity.value)
 const nicknameInput = ref<HTMLInputElement | null>(null)
 const identityButton = ref<HTMLButtonElement | null>(null)
+const contentInput = ref<HTMLTextAreaElement | null>(null)
+const replyingTo = ref<Pick<PublicComment, 'id' | 'nickname'> | null>(null)
 const content = ref('')
 const comments = ref<PublicComment[]>([])
 const total = ref(0)
@@ -42,6 +44,16 @@ async function toggleIdentity() {
   if (disposed) return
   if (editingIdentity.value) nicknameInput.value?.focus()
   else identityButton.value?.focus()
+}
+
+async function replyTo(comment: PublicComment | null) {
+  if (submitting.value) return
+  replyingTo.value = comment ? { id: comment.id, nickname: comment.nickname } : null
+  submitError.value = ''
+  clearTimeout(submittedTimeout)
+  submitted.value = false
+  await nextTick()
+  if (!disposed) contentInput.value?.focus()
 }
 
 async function load(targetPage = page.value) {
@@ -79,6 +91,7 @@ async function submit() {
       nickname: identity.nickname,
       ...(identity.email ? { email: identity.email } : {}),
       content: text,
+      ...(replyingTo.value ? { parent_id: replyingTo.value.id } : {}),
     }, submitRequest.signal)
     if (disposed) return
     saveCommenter(identity)
@@ -87,6 +100,7 @@ async function submit() {
     nickname.value = identity.nickname
     email.value = identity.email
     content.value = ''
+    replyingTo.value = null
     submitted.value = true
     submittedTimeout = setTimeout(() => { submitted.value = false }, 2000)
   } catch (error: unknown) {
@@ -106,6 +120,7 @@ function dateLabel(value: string) {
 watch(() => props.articleId, () => {
   comments.value = []
   total.value = 0
+  replyingTo.value = null
   void load(1)
 }, { immediate: true })
 
@@ -126,6 +141,10 @@ onBeforeUnmount(() => {
     </header>
 
     <form class="comment-form" novalidate :aria-busy="submitting" @submit.prevent="submit">
+      <div v-if="replyingTo" :id="`comment-reply-${articleId}`" class="comment-reply-target" role="status">
+        <p>回复 <strong>@{{ replyingTo.nickname }}</strong></p>
+        <button type="button" data-action="cancel-reply" :disabled="submitting" @click="replyTo(null)">取消回复</button>
+      </div>
       <div v-if="savedIdentity" class="comment-identity-summary">
         <p>以 <strong>{{ savedIdentity.nickname }}</strong> 评论</p>
         <button
@@ -150,7 +169,7 @@ onBeforeUnmount(() => {
       </div>
       <div class="comment-field">
         <label :for="`comment-content-${articleId}`">评论内容 <span aria-hidden="true">*</span></label>
-        <textarea :id="`comment-content-${articleId}`" v-model="content" name="content" required rows="5" maxlength="2000" :disabled="submitting" :aria-describedby="`comment-help-${articleId}`" placeholder="分享你的想法，让交流继续。" />
+        <textarea :id="`comment-content-${articleId}`" ref="contentInput" v-model="content" name="content" required rows="5" maxlength="2000" :disabled="submitting" :aria-describedby="replyingTo ? `comment-help-${articleId} comment-reply-${articleId}` : `comment-help-${articleId}`" :placeholder="replyingTo ? `回复 @${replyingTo.nickname}…` : '分享你的想法，让交流继续。'" />
       </div>
       <p :id="`comment-help-${articleId}`" class="comment-help"><template v-if="editingIdentity">昵称 1–32 字，邮箱选填，提交成功后会记住并收起。昵称仅限中文、英文、数字或下划线。</template>正文 1–1000 字，审核后展示。邮箱不公开，IP 仅用于管理和归属地展示。</p>
       <div class="comment-form-actions">
@@ -172,10 +191,14 @@ onBeforeUnmount(() => {
         <article v-for="comment in comments" :key="comment.id" class="comment-item">
           <header class="comment-meta">
             <span class="comment-nickname">{{ comment.nickname }}</span>
-            <span v-if="comment.location" class="comment-location">IP 属地：{{ comment.location }}</span>
+            <span v-if="comment.reply_to" class="comment-reply-context">回复 <strong>@{{ comment.reply_to.nickname }}</strong></span>
+            <span v-if="comment.location" class="comment-location">{{ comment.location }}</span>
             <time :datetime="comment.created_at">{{ dateLabel(comment.created_at) }}</time>
           </header>
           <p class="comment-content">{{ comment.content }}</p>
+          <div class="comment-item-actions">
+            <button type="button" data-action="reply" :aria-label="`回复 ${comment.nickname}`" :disabled="submitting" @click="replyTo(comment)">回复</button>
+          </div>
         </article>
         <nav v-if="pageCount > 1" class="comment-pagination" aria-label="评论分页">
           <button type="button" aria-label="上一页评论" :disabled="page <= 1" @click="load(page - 1)">上一页</button>
@@ -201,6 +224,14 @@ onBeforeUnmount(() => {
 .comment-identity-summary button { padding: 4px 0; border: 0; background: transparent; color: var(--blog-accent); font: inherit; cursor: pointer; }
 .comment-identity-summary button:hover:not(:disabled) { text-decoration: underline; text-underline-offset: 3px; }
 .comment-identity-summary button:disabled { cursor: default; opacity: .45; }
+.comment-reply-target { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; padding: 10px 12px; border-left: 2px solid var(--blog-accent); background: var(--blog-accent-soft); color: var(--blog-muted); font-size: 12px; line-height: 1.8; }
+.comment-reply-target p { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.comment-reply-target strong, .comment-reply-context strong { color: var(--blog-accent); font-weight: 500; }
+.comment-reply-target button, .comment-item-actions button { flex-shrink: 0; padding: 4px 0; border: 0; background: transparent; color: var(--blog-accent); font: inherit; font-size: 12px; cursor: pointer; }
+.comment-reply-target button:hover:not(:disabled), .comment-item-actions button:hover:not(:disabled) { text-decoration: underline; text-underline-offset: 3px; }
+.comment-reply-target button:disabled, .comment-item-actions button:disabled { cursor: default; opacity: .45; }
+.comment-reply-context { overflow-wrap: anywhere; }
+.comment-item-actions { display: flex; justify-content: flex-end; margin-top: 10px; }
 .comment-field { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
 .comment-field label { color: var(--blog-text); font-size: 12px; font-weight: 600; }
 .comment-field label > span { color: var(--blog-accent); }

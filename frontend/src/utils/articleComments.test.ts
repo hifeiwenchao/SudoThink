@@ -32,7 +32,7 @@ beforeEach(() => { window.localStorage.clear() })
 function response(config: InternalAxiosRequestConfig, data: unknown) {
   return { data: { code: 0, data }, status: 200, statusText: 'OK', headers: {}, config }
 }
-const firstPage = { items: [{ id: 7, nickname: '读者_A', location: '浙江省杭州市', content: '<img src=x onerror=alert(1)>\n谢谢分享', created_at: '2026-11-12T08:00:00+08:00', parent_id: null }], total: 1, page: 1, size: 10 }
+const firstPage = { items: [{ id: 7, nickname: '读者_A', location: '杭州', content: '<img src=x onerror=alert(1)>\n谢谢分享', created_at: '2026-11-12T08:00:00+08:00', parent_id: null, reply_to: null }], total: 1, page: 1, size: 10 }
 async function settle() { await flushPromises(); await nextTick() }
 async function mount() {
   ArticleComments ??= await component()
@@ -56,7 +56,7 @@ test('approved comments render as plain text with nickname and location, without
   axios.defaults.adapter = async (config) => response(config, firstPage)
   const view = await mount(); t.after(view.unmount)
   assert.ok(view.container.textContent?.includes('读者_A'))
-  assert.ok(view.container.textContent?.includes('浙江省杭州市'))
+  assert.ok(view.container.textContent?.includes('杭州'))
   assert.ok(view.container.textContent?.includes('<img src=x onerror=alert(1)>\n谢谢分享'))
   assert.equal(view.container.querySelector('img'), null)
 })
@@ -222,4 +222,77 @@ test('a failed list can be retried and pagination displays the requested page', 
   assert.ok(view.container.textContent?.includes('第二页读者'))
   assert.ok(!view.container.textContent?.includes('第一页读者'))
   assert.equal(view.container.querySelector<HTMLButtonElement>('[aria-label="下一页评论"]')?.disabled, true)
+})
+
+test('visitors can reply with their remembered identity and the reply stays pending', async (t) => {
+  const submissions: unknown[] = []
+  saveCommenter({ nickname: '另一个游客', email: '' })
+  axios.defaults.adapter = async (config) => {
+    if (config.method === 'post') { submissions.push(JSON.parse(config.data)); return response(config, { id: 8, is_approved: false }) }
+    return response(config, firstPage)
+  }
+  const view = await mount(); t.after(view.unmount)
+  const reply = view.container.querySelector<HTMLButtonElement>('[data-action="reply"]')
+  assert.ok(reply)
+  reply.click(); await settle()
+  assert.ok(view.container.querySelector('.comment-reply-target')?.textContent?.includes('读者_A'))
+  assert.equal(document.activeElement, view.container.querySelector('textarea'))
+  input(view.container, 'content', '回复你的想法')
+  submit(view.container); await settle()
+  assert.deepEqual(submissions, [{ nickname: '另一个游客', content: '回复你的想法', parent_id: 7 }])
+  assert.equal(view.container.querySelector('.comment-reply-target'), null)
+  assert.equal(view.container.querySelector<HTMLTextAreaElement>('textarea')?.value, '')
+  assert.ok(view.container.querySelector('.comment-message.success'))
+  assert.equal(view.container.querySelectorAll('.comment-item').length, 1)
+})
+
+test('canceling a reply preserves the draft and submits a top-level comment', async (t) => {
+  saveCommenter({ nickname: '游客', email: '' })
+  let payload: unknown
+  axios.defaults.adapter = async (config) => {
+    if (config.method === 'post') { payload = JSON.parse(config.data); return response(config, { id: 8, is_approved: false }) }
+    return response(config, firstPage)
+  }
+  const view = await mount(); t.after(view.unmount)
+  view.container.querySelector<HTMLButtonElement>('[data-action="reply"]')?.click(); await settle()
+  input(view.container, 'content', '仍然保留正文')
+  const cancel = view.container.querySelector<HTMLButtonElement>('[data-action="cancel-reply"]')
+  assert.ok(cancel)
+  cancel.click(); await settle()
+  assert.equal(view.container.querySelector<HTMLTextAreaElement>('textarea')?.value, '仍然保留正文')
+  submit(view.container); await settle()
+  assert.deepEqual(payload, { nickname: '游客', content: '仍然保留正文' })
+})
+
+test('a failed reply keeps its target and draft, and reply controls lock during submission', async (t) => {
+  saveCommenter({ nickname: '游客', email: '' })
+  let fail!: () => void
+  axios.defaults.adapter = async (config) => {
+    if (config.method === 'post') {
+      await new Promise<void>((_resolve, reject) => { fail = () => reject(new Error('连接失败')) })
+    }
+    return response(config, firstPage)
+  }
+  const view = await mount(); t.after(view.unmount)
+  const reply = view.container.querySelector<HTMLButtonElement>('[data-action="reply"]')
+  assert.ok(reply)
+  reply.click(); await settle()
+  input(view.container, 'content', '不要丢失我的回复')
+  submit(view.container); await settle()
+  assert.equal(reply.disabled, true)
+  assert.equal(view.container.querySelector<HTMLButtonElement>('[data-action="cancel-reply"]')?.disabled, true)
+  fail(); await settle()
+  assert.ok(view.container.querySelector('.comment-reply-target')?.textContent?.includes('读者_A'))
+  assert.equal(view.container.querySelector<HTMLTextAreaElement>('textarea')?.value, '不要丢失我的回复')
+  assert.ok(view.container.querySelector('[role="alert"]'))
+  assert.equal(reply.disabled, false)
+})
+
+test('a published reply shows its recipient even when the parent is on another page', async (t) => {
+  axios.defaults.adapter = async (config) => response(config, {
+    ...firstPage, items: [{ ...firstPage.items[0], parent_id: 2, reply_to: { id: 2, nickname: '原评论作者' } }],
+  })
+  const view = await mount(); t.after(view.unmount)
+  assert.ok(view.container.querySelector('.comment-reply-context')?.textContent?.includes('原评论作者'))
+  assert.equal(view.container.querySelectorAll('.comment-item').length, 1)
 })

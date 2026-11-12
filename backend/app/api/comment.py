@@ -15,17 +15,22 @@ from app.schemas.common import CommentIn
 bp = Blueprint("comment")
 
 
-def _comment_dict(c: Comment) -> dict:
+def _comment_nickname(c: Comment) -> str:
+    return c.nickname or (
+        (c.author.nickname or c.author.username) if c.author_id is not None else "访客"
+    )
+
+
+def _comment_dict(c: Comment, *, reply_to: dict | None = None) -> dict:
     """Public comment fields; never include a contact address or raw IP."""
     return {
         "id": c.id,
         "content": c.content,
-        "nickname": c.nickname or (
-            (c.author.nickname or c.author.username) if c.author_id is not None else "访客"
-        ),
+        "nickname": _comment_nickname(c),
         "location": display_comment_location(c.location),
         "created_at": c.created_at.isoformat(),
         "parent_id": c.parent_id,
+        "reply_to": reply_to,
     }
 
 
@@ -33,6 +38,7 @@ def _moderation_comment_dict(c: Comment, *, include_private: bool = False) -> di
     result = {
         **_comment_dict(c),
         "is_approved": c.is_approved,
+        "status": "approved" if c.is_approved else "rejected" if c.is_rejected else "pending",
         "author": {
             "id": c.author.id,
             "username": c.author.username,
@@ -40,7 +46,7 @@ def _moderation_comment_dict(c: Comment, *, include_private: bool = False) -> di
         } if c.author_id is not None else None,
     }
     if include_private:
-        result.update(email=c.email, ip_address=c.ip_address)
+        result.update(email=c.email, ip_address=c.ip_address, user_agent=c.user_agent)
     return result
 
 
@@ -80,9 +86,16 @@ async def list_comments(request: Request, aid: int):
     comments = (
         await qs.order_by("-created_at", "-id")
         .offset((page - 1) * size).limit(size)
-        .prefetch_related("author")
+        .prefetch_related("author", "parent__author")
     )
-    return success({"items": [_comment_dict(c) for c in comments], "total": total,
+    items = []
+    for comment in comments:
+        parent = comment.parent if comment.parent_id is not None else None
+        reply_to = None
+        if parent is not None and parent.is_approved and parent.article_id == aid:
+            reply_to = {"id": parent.id, "nickname": _comment_nickname(parent)}
+        items.append(_comment_dict(comment, reply_to=reply_to))
+    return success({"items": items, "total": total,
                     "page": page, "size": size})
 
 
@@ -120,6 +133,7 @@ async def create_comment(request: Request, aid: int):
         nickname=payload.nickname,
         email=str(payload.email),
         ip_address=ip_address,
+        user_agent=request.headers.get("user-agent", "")[:1024],
         location=location,
         content=payload.content,
         parent_id=payload.parent_id,
@@ -141,7 +155,7 @@ async def list_pending_comments(request: Request, aid: int):
     await _ensure_can_moderate(request.ctx.user, article)
 
     comments = (
-        await Comment.filter(article_id=aid, is_approved=False)
+        await Comment.filter(article_id=aid, is_approved=False, is_rejected=False)
         .order_by("-created_at")
         .prefetch_related("author")
     )
@@ -160,31 +174,33 @@ async def approve_comment(request: Request, cid: int):
         raise NotFoundError("comment not found")
     await _ensure_can_moderate(request.ctx.user, comment.article)
 
-    if comment.is_approved:
-        return success(
-            _moderation_comment_dict(comment, include_private=request.ctx.user.is_admin),
-            message="already approved",
-        )
-
+    already_approved = comment.is_approved and not comment.is_rejected
     comment.is_approved = True
-    await comment.save(update_fields=["is_approved", "updated_at"])
+    comment.is_rejected = False
+    # Both flags change in one UPDATE so concurrent reviews cannot leave a mixed state.
+    await comment.save(update_fields=["is_approved", "is_rejected", "updated_at"])
     return success(
         _moderation_comment_dict(comment, include_private=request.ctx.user.is_admin),
-        message="approved",
+        message="already approved" if already_approved else "approved",
     )
 
 
 @bp.post("/comments/<cid:int>/reject")
 @login_required
 async def reject_comment(request: Request, cid: int):
-    """驳回评论：直接删除。"""
-    comment = await Comment.get_or_none(id=cid).prefetch_related("article")
+    """驳回评论并保留记录，支持后续重新审核。"""
+    comment = await Comment.get_or_none(id=cid).prefetch_related("author", "article")
     if comment is None:
         raise NotFoundError("comment not found")
     await _ensure_can_moderate(request.ctx.user, comment.article)
 
-    await comment.delete()
-    return success(message="rejected")
+    comment.is_approved = False
+    comment.is_rejected = True
+    await comment.save(update_fields=["is_approved", "is_rejected", "updated_at"])
+    return success(
+        _moderation_comment_dict(comment, include_private=request.ctx.user.is_admin),
+        message="rejected",
+    )
 
 
 @bp.delete("/comments/<cid:int>")

@@ -1,4 +1,4 @@
-"""Explicit, idempotent upgrades for existing site content and guest comments."""
+"""Explicit, idempotent upgrades for site content and comment moderation."""
 import hashlib
 import re
 
@@ -17,9 +17,11 @@ async def _upgrade_guest_comments(connection) -> None:
     )
     existing = {column["COLUMN_NAME"]: column for column in columns}
     additions = {
+        "is_rejected": "BOOL NOT NULL DEFAULT 0 COMMENT '是否已驳回'",
         "nickname": "VARCHAR(32) NOT NULL DEFAULT '' COMMENT '访客昵称'",
         "email": "VARCHAR(254) NOT NULL DEFAULT '' COMMENT '访客邮箱，仅供管理'",
         "ip_address": "VARCHAR(45) NOT NULL DEFAULT '' COMMENT '服务端记录的评论 IP'",
+        "user_agent": "VARCHAR(1024) NOT NULL DEFAULT '' COMMENT '评论请求 User-Agent，仅供管理'",
         "location": "VARCHAR(256) NOT NULL DEFAULT '' COMMENT '评论 IP 归属地'",
     }
     changes = [
@@ -78,8 +80,10 @@ async def upgrade_site_content_schema() -> None:
 
     ``generate_schemas(safe=True)`` creates the AboutPage and DonationSettings
     tables, but does not alter an existing categories table. Check MySQL metadata
-    before adding category weights and guest comment metadata. Existing comment
-    authors become nullable, retaining their FK with ON DELETE SET NULL.
+    before adding category weights, guest comment metadata, and rejection flags.
+    Existing approvals remain intact; unapproved comments start as pending.
+    Historical comments receive an empty User-Agent; only new submissions record it.
+    Comment authors become nullable, retaining their FK with ON DELETE SET NULL.
     """
     connection = connections.get("default")
     if connection.capabilities.dialect != "mysql":

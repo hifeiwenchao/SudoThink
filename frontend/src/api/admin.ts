@@ -30,15 +30,25 @@ export interface AdminArticleBrief {
   author: { id: number; username: string }
 }
 
-export interface PendingComment {
+export type CommentStatus = 'all' | 'pending' | 'approved' | 'rejected'
+
+export interface CommentFilters {
+  article_id?: number
+  status?: CommentStatus
+}
+
+export interface AdminComment {
   id: number
   content: string
   created_at: string
-  article: { id: number; title: string }
+  status: Exclude<CommentStatus, 'all'>
+  is_approved: boolean
+  article: { id: number; title: string; is_published: boolean }
   nickname?: string
   email?: string
   ip_address?: string
   location?: string
+  user_agent?: string
   author: { id: number; username: string; nickname: string } | null
 }
 
@@ -75,9 +85,9 @@ export const adminApi = {
   removeArticle(aid: number) {
     return http.delete<unknown, void>(`/admin/articles/${aid}`)
   },
-  pendingComments(page = 1, size = 10) {
-    return http.get<unknown, PageResp<PendingComment>>('/admin/comments/pending', {
-      params: { page, size },
+  listComments(page = 1, size = 10, filters: CommentFilters = {}) {
+    return http.get<unknown, PageResp<AdminComment>>('/admin/comments', {
+      params: { page, size, ...filters },
     })
   },
 }

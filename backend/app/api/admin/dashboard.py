@@ -26,7 +26,7 @@ async def dashboard(request: Request):
     total_users = await User.all().count()
     total_articles = await Article.all().count()
     total_comments = await Comment.all().count()
-    pending_comments = await Comment.filter(is_approved=False).count()
+    pending_comments = await Comment.filter(is_approved=False, is_rejected=False).count()
 
     return success({
         "total_users": total_users,

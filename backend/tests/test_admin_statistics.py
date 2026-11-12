@@ -11,6 +11,7 @@ from tortoise import Tortoise
 
 from app.api.admin.dashboard import dashboard
 from app.api.admin.users import list_users
+from app.api.comment import reject_comment
 from app.core.exceptions import ForbiddenError, UnauthorizedError
 from app.core.security import create_access_token
 from app.models.article import Article
@@ -57,7 +58,7 @@ class AdminStatisticsTests(unittest.IsolatedAsyncioTestCase):
             "total_users": 1, "total_articles": 0, "total_comments": 0, "pending_comments": 0,
         })
 
-    async def test_dashboard_counts_all_content_and_only_unapproved_comments_as_pending(self):
+    async def test_dashboard_counts_all_content_and_only_pending_comments_as_pending(self):
         reader, _ = await self.add_readers()
         published = await Article.create(
             title="Published", slug="published", content="Body", author=self.admin,
@@ -67,6 +68,8 @@ class AdminStatisticsTests(unittest.IsolatedAsyncioTestCase):
             title="Draft", slug="draft", content="Body", author=self.admin,
         )
         await Comment.create(content="Pending", article=published, author=reader)
+        rejected = await Comment.create(content="Rejected", article=published, author=reader)
+        await reject_comment(self.request(self.admin), rejected.id)
         for article in (published, published, draft):
             await Comment.create(
                 content="Approved", article=article, author=reader, is_approved=True
@@ -74,7 +77,7 @@ class AdminStatisticsTests(unittest.IsolatedAsyncioTestCase):
 
         result = self.data(await dashboard(self.request(self.admin)))
         self.assertEqual(result, {
-            "total_users": 3, "total_articles": 2, "total_comments": 4, "pending_comments": 1,
+            "total_users": 3, "total_articles": 2, "total_comments": 5, "pending_comments": 1,
         })
 
     async def test_user_list_reports_full_total_on_paginated_and_empty_pages(self):

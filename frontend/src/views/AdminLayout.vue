@@ -24,6 +24,10 @@ const route = useRoute()
             <el-icon aria-hidden="true"><Document /></el-icon>
             <span>文章管理</span>
           </el-menu-item>
+          <el-menu-item index="/admin/comments">
+            <el-icon aria-hidden="true"><ChatLineRound /></el-icon>
+            <span>评论管理</span>
+          </el-menu-item>
           <el-menu-item index="/admin/categories">
             <el-icon aria-hidden="true"><Folder /></el-icon>
             <span>分类管理</span>
@@ -39,10 +43,6 @@ const route = useRoute()
           <el-menu-item index="/admin/donations">
             <el-icon aria-hidden="true"><Present /></el-icon>
             <span>打赏设置</span>
-          </el-menu-item>
-          <el-menu-item index="/admin/comments">
-            <el-icon aria-hidden="true"><ChatLineRound /></el-icon>
-            <span>评论审核</span>
           </el-menu-item>
         </el-menu>
         <a :href="PUBLIC_SITE_URL" class="return-link">

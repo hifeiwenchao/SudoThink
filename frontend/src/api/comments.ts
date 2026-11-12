@@ -7,6 +7,7 @@ export interface PublicComment {
   content: string
   created_at: string
   parent_id: number | null
+  reply_to: { id: number; nickname: string } | null
 }
 
 export interface CommentPage {

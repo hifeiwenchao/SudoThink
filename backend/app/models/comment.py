@@ -8,9 +8,11 @@ class Comment(TimestampMixin):
     id = fields.IntField(pk=True)
     content = fields.CharField(max_length=1000, description="评论内容")
     is_approved = fields.BooleanField(default=False, description="是否审核通过")
+    is_rejected = fields.BooleanField(default=False, description="是否已驳回")
     nickname = fields.CharField(max_length=32, default="", description="访客昵称")
     email = fields.CharField(max_length=254, default="", description="访客邮箱，仅供管理")
     ip_address = fields.CharField(max_length=45, default="", description="服务端记录的评论 IP")
+    user_agent = fields.CharField(max_length=1024, default="", description="评论请求 User-Agent，仅供管理")
     location = fields.CharField(max_length=256, default="", description="评论 IP 归属地")
 
     article = fields.ForeignKeyField(

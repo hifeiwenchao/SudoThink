@@ -1,4 +1,4 @@
-"""Upgrade MySQL category, About, donation settings and anonymous comment schemas.
+"""Upgrade MySQL category, About, donation settings and comment schemas.
 
 Run after deploying the new backend code and before starting application workers::
 
@@ -11,9 +11,12 @@ For Docker deployments::
 
 This command uses the project .env, preserves existing records, and may be run
 repeatedly. It preserves legacy comments and their user links while adding guest
-metadata and allowing nullable authors. The configured MYSQL_USER needs CREATE
-and ALTER privileges. It does
-not create a database or modify administrator accounts; first deployments should
+metadata, allowing nullable authors, and marking rejections without deleting rows.
+User-Agent metadata is added with an empty default for historical comments.
+Existing approvals remain unchanged; unapproved comments start as pending. Old
+rejections that were already deleted cannot be recovered by this migration.
+The configured MYSQL_USER needs CREATE and ALTER privileges. It does not create
+a database or modify administrator accounts; first deployments should
 continue using scripts/init_db.py instead.
 """
 from __future__ import annotations
@@ -39,7 +42,7 @@ async def upgrade() -> None:
         await upgrade_site_content_schema()
     finally:
         await Tortoise.close_connections()
-    print("分类权重、关于我、打赏设置与访客评论结构升级完成，现有数据已保留")
+    print("分类权重、关于我、打赏设置与评论审核结构升级完成，现有数据已保留")
 
 
 if __name__ == "__main__":
