@@ -1,6 +1,6 @@
 import DOMPurify from 'dompurify'
 
-const RICH_TEXT_TAG = /<\/?(?:p|div|h[1-6]|ul|ol|li|blockquote|pre|code|img|br|strong|b|em|i|u|s|a|hr|script|iframe|style)\b[^>]*>/i
+const RICH_TEXT_TAG = /<\/?(?:p|div|h[1-6]|ul|ol|li|blockquote|pre|code|img|video|br|strong|b|em|i|u|s|a|hr|script|iframe|style)\b[^>]*>/i
 const SAFE_IMAGE_URL = /^(https?:\/\/|\/(?!\/))/i
 const SAFE_LINK_URL = /^(https?:\/\/|mailto:|\/(?!\/)|#)/i
 
@@ -23,8 +23,8 @@ export function toArticleHtml(content: string): string {
 export function sanitizeArticleHtml(content: string): string {
   const clean = DOMPurify.sanitize(content, {
     ALLOWED_TAGS: ['p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li',
-      'blockquote', 'pre', 'code', 'img', 'br', 'strong', 'b', 'em', 'i', 'u', 's', 'a', 'hr', 'span'],
-    ALLOWED_ATTR: ['href', 'target', 'rel', 'src', 'alt', 'title', 'style', 'class', 'start'],
+      'blockquote', 'pre', 'code', 'img', 'video', 'br', 'strong', 'b', 'em', 'i', 'u', 's', 'a', 'hr', 'span'],
+    ALLOWED_ATTR: ['href', 'target', 'rel', 'src', 'alt', 'title', 'style', 'class', 'start', 'controls', 'preload', 'playsinline'],
     ALLOW_DATA_ATTR: false,
   })
   const template = document.createElement('template')
@@ -41,6 +41,13 @@ export function sanitizeArticleHtml(content: string): string {
   })
   template.content.querySelectorAll('img').forEach((image) => {
     if (!SAFE_IMAGE_URL.test(image.getAttribute('src') || '')) image.remove()
+  })
+  template.content.querySelectorAll('video').forEach((video) => {
+    if (!SAFE_IMAGE_URL.test(video.getAttribute('src') || '')) { video.remove(); return }
+    video.replaceChildren()
+    video.setAttribute('controls', '')
+    video.setAttribute('preload', 'metadata')
+    video.setAttribute('playsinline', '')
   })
   return template.innerHTML
 }
@@ -59,5 +66,5 @@ export function hasArticleContent(content: string): boolean {
   if (getArticleText(content).trim()) return true
   const template = document.createElement('template')
   template.innerHTML = toArticleHtml(content)
-  return Boolean(template.content.querySelector('img[src]'))
+  return Boolean(template.content.querySelector('img[src], video[src]'))
 }

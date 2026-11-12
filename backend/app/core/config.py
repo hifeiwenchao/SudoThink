@@ -56,6 +56,19 @@ class Settings:
     # CORS
     CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "*")
 
+    # OSS / CDN (uploads remain disabled until all required values are configured)
+    ACCESS_KEY_ID: str = os.getenv("ACCESS_KEY_ID", "")
+    ACCESS_KEY_SECRET: str = os.getenv("ACCESS_KEY_SECRET", "")
+    OSS_SECURITY_TOKEN: str = os.getenv("OSS_SECURITY_TOKEN", "")
+    OSS_REGION: str = os.getenv("OSS_REGION", "")
+    OSS_BUCKET: str = os.getenv("OSS_BUCKET", "")
+    OSS_ENDPOINT: str = os.getenv("OSS_ENDPOINT", "")
+    CDN_BASE_URL: str = os.getenv("CDN_BASE_URL", "")
+    OSS_MEDIA_PREFIX: str = os.getenv("OSS_MEDIA_PREFIX", "media")
+    OSS_STATIC_PREFIX: str = os.getenv("OSS_STATIC_PREFIX", "static")
+    OSS_IMAGE_MAX_BYTES: int = _int(os.getenv("OSS_IMAGE_MAX_BYTES"), 10485760)
+    OSS_VIDEO_MAX_BYTES: int = _int(os.getenv("OSS_VIDEO_MAX_BYTES"), 209715200)
+
     @property
     def CORS_ORIGINS_LIST(self) -> List[str]:
         if not self.CORS_ORIGINS or self.CORS_ORIGINS == "*":

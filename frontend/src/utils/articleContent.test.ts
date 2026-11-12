@@ -49,6 +49,37 @@ describe('article content', () => {
     assert.equal(hasArticleContent('<p><img src="https://example.com/a.png" alt="插图"></p>'), true)
   })
 
+  it('preserves a video-only article with safe playback defaults and no word count', () => {
+    const source = '<video src="https://cdn.example.com/clip.mp4" autoplay loop onerror="alert(1)">浏览器不支持视频</video>'
+    const html = toArticleHtml(source)
+    const video = new DOMParser().parseFromString(html, 'text/html').querySelector('video')!
+    assert.ok(video)
+    assert.equal(video.getAttribute('src'), 'https://cdn.example.com/clip.mp4')
+    assert.equal(video.hasAttribute('controls'), true)
+    assert.equal(video.getAttribute('preload'), 'metadata')
+    assert.equal(video.hasAttribute('playsinline'), true)
+    assert.equal(video.hasAttribute('autoplay'), false)
+    assert.equal(video.hasAttribute('loop'), false)
+    assert.equal(video.hasAttribute('onerror'), false)
+    assert.equal(hasArticleContent(source), true)
+    assert.equal(getArticleText(source), '')
+  })
+
+  for (const src of ['javascript:alert(1)', 'data:video/mp4;base64,YQ==', 'blob:https://example.com/id', '//example.com/video.mp4', '']) {
+    it(`removes a video with unsafe or missing source: ${src}`, () => {
+      const html = sanitizeArticleHtml(`<video src="${src}" controls></video>`)
+      assert.equal(new DOMParser().parseFromString(html, 'text/html').querySelector('video'), null)
+      assert.equal(hasArticleContent(`<video src="${src}"></video>`), false)
+    })
+  }
+
+  it('retains safe site-relative video sources without enabling embeds', () => {
+    const html = sanitizeArticleHtml('<video src="/media/clip.webm"></video><iframe src="https://example.com"></iframe><object data="https://example.com"></object>')
+    const body = new DOMParser().parseFromString(html, 'text/html').body
+    assert.equal(body.querySelector('video')?.getAttribute('src'), '/media/clip.webm')
+    assert.equal(body.querySelector('iframe, object'), null)
+  })
+
   it('extracts readable text with boundaries between paragraphs', () => {
     assert.equal(getArticleText('<h2>你好</h2><p>世界 <strong>Vue</strong></p>'), '你好\n世界 Vue')
   })

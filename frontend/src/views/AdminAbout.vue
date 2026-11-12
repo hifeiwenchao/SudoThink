@@ -11,6 +11,7 @@ const form = reactive({ title: '关于我', content: '' })
 const loading = ref(false)
 const loaded = ref(false)
 const saving = ref(false)
+const uploading = ref(false)
 const loadError = ref(false)
 const saveError = ref('')
 const titleError = ref('')
@@ -26,6 +27,7 @@ const saveStatus = computed(() => {
   if (loading.value) return '正在加载内容…'
   if (loadError.value) return '内容加载失败，请重试'
   if (saving.value) return '正在保存…'
+  if (uploading.value) return '正在上传文件，请等待完成或取消…'
   if (isDirty.value) return '有未保存的修改'
   if (!loaded.value) return '等待加载'
   if (updatedAt.value) {
@@ -60,7 +62,7 @@ async function load() {
 }
 
 async function save() {
-  if (!editable.value) return
+  if (!editable.value || uploading.value) return
   titleError.value = ''
   const title = form.title.trim()
   if (!title || title.length > 120) {
@@ -82,9 +84,9 @@ async function save() {
 }
 
 async function confirmLeave() {
-  if (!isDirty.value) return true
+  if (!isDirty.value && !uploading.value) return true
   try {
-    await ElMessageBox.confirm('当前修改尚未保存，离开后将丢失。确定离开吗？', '离开编辑页', {
+    await ElMessageBox.confirm(uploading.value ? '文件正在上传，离开会取消上传，未保存的修改也会丢失。确定离开吗？' : '当前修改尚未保存，离开后将丢失。确定离开吗？', '离开编辑页', {
       confirmButtonText: '离开',
       cancelButtonText: '继续编辑',
       type: 'warning',
@@ -96,7 +98,7 @@ async function confirmLeave() {
 }
 
 function beforeUnload(event: BeforeUnloadEvent) {
-  if (!isDirty.value) return
+  if (!isDirty.value && !uploading.value) return
   event.preventDefault()
   event.returnValue = ''
 }
@@ -118,8 +120,8 @@ onMounted(load)
         <p class="save-status" role="status">{{ saveStatus }}</p>
       </div>
       <div class="page-actions">
-        <el-button :disabled="!editable" @click="previewVisible = true">预览</el-button>
-        <el-button type="primary" :loading="saving" :disabled="!editable" @click="save">保存内容</el-button>
+        <el-button :disabled="!editable || uploading" @click="previewVisible = true">预览</el-button>
+        <el-button type="primary" :loading="saving" :disabled="!editable || uploading" @click="save">保存内容</el-button>
       </div>
     </header>
 
@@ -129,7 +131,7 @@ onMounted(load)
     <section v-else class="writing-panel" v-loading="loading" aria-label="关于我编辑区">
       <div v-if="saveError" class="save-error" role="alert">
         <span>{{ saveError }}</span>
-        <el-button text type="primary" :disabled="!editable" @click="save">重试保存</el-button>
+        <el-button text type="primary" :disabled="!editable || uploading" @click="save">重试保存</el-button>
       </div>
       <el-form label-position="top" :disabled="!editable" @submit.prevent="save">
         <el-form-item class="title-field" label="页面标题" :error="titleError" required>
@@ -140,7 +142,7 @@ onMounted(load)
         <span>自我介绍</span>
         <span class="field-hint">保存后会显示在公开博客，留空表示暂未填写。</span>
       </div>
-      <RichTextEditor v-model="form.content" :disabled="!editable" aria-label="关于我正文" />
+      <RichTextEditor v-model="form.content" :disabled="!editable" aria-label="关于我正文" @uploading-change="uploading = $event" />
       <footer class="writing-footer"><span>正文 {{ wordCount.toLocaleString() }} 字</span></footer>
     </section>
 

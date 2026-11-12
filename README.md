@@ -367,11 +367,112 @@ pnpm dev                    # 或 npm run dev
 在管理站点登录后，进入“文章管理 → 新建文章”，或从顶部“写文章”进入编辑页。
 
 - 正文使用富文本编辑器，支持多级标题、加粗、斜体、下划线、删除线、列表、引用、代码块、对齐、链接、图片和撤销/重做。
-- 右侧选择一个分类、多个标签，设置摘要和封面图，点击“预览”检查排版；正文图片通过工具栏填写 HTTP/HTTPS 图片 URL 插入，暂不提供本地文件上传。
+- 右侧选择一个分类、多个标签，设置摘要和封面图，点击“预览”检查排版；正文支持图片 URL，也可上传本地图片和视频，封面支持本地图片上传。上传功能需要先配置下文的阿里云 OSS 和 CDN。
 - “保存草稿”保存到后台，“发布文章”使文章在公开站点可见。已有文章可在文章管理列表中点击“编辑”，继续修改草稿或更新已发布内容。
 - 页面显示字数、预计阅读时长和保存状态；有未保存修改时，离开编辑页会提醒。
 
 文章富文本 HTML 继续保存在现有 `content` 字段中。预览和文章详情统一清洗 HTML 并渲染；已有纯文本正文保留换行展示。草稿仅可通过管理员接口读取，编辑读取不会增加公开阅读量。
+
+### 阿里云 OSS 图片、视频上传
+
+管理员在正文工具栏选择本地图片或视频，或在封面处上传图片。浏览器先向后台申请 5 分钟有效的上传凭证，再直接上传到阿里云 OSS；进度和取消在上传界面显示，成功后插入 CDN 地址。上传期间请等待完成或取消后再保存文章；离开编辑页会提醒。共享编辑器的“关于我”也支持媒体上传。
+
+支持 JPG/JPEG、PNG、GIF、WebP、AVIF 图片，以及 MP4、WebM 视频；默认单张图片最大 10 MB、单个视频最大 200 MB。视频以原文件存储，使用浏览器原生播放器，不执行转码；编码需可被目标浏览器播放。正文可以只有图片或视频。原有外链继续保留，若需迁移到 OSS，请重新上传并替换链接。
+
+在根目录 `.env` 填写配置；Docker 和直接运行后端均读取这些变量：
+
+```dotenv
+ACCESS_KEY_ID=your-ram-access-key-id
+ACCESS_KEY_SECRET=your-ram-access-key-secret
+OSS_SECURITY_TOKEN=
+OSS_REGION=cn-hangzhou
+OSS_BUCKET=your-bucket
+OSS_ENDPOINT=https://oss-cn-hangzhou.aliyuncs.com
+CDN_BASE_URL=https://cdn.example.com
+OSS_MEDIA_PREFIX=media
+OSS_STATIC_PREFIX=static
+OSS_IMAGE_MAX_BYTES=10485760
+OSS_VIDEO_MAX_BYTES=209715200
+```
+
+`OSS_REGION` 和公网 `OSS_ENDPOINT` 必须与 Bucket 所在地域一致；上传地址由后端生成，不使用 CDN 域名上传。CDN 地址是阿里云 CDN 中配置的自定义 HTTPS 资源域名，也可带路径前缀；该前缀必须对应 CDN 的回源路径规则。没有配置 OSS/CDN 时，本地上传入口不可用，图片 URL 插入仍可使用。
+
+密钥只供后端签名和静态资源发布脚本使用，不能设置为 `VITE_` 变量。前端只接收短期表单签名，不接收 AccessKey Secret。使用专用 RAM 用户，权限限定到目标 Bucket 的媒体和静态资源目录，例如：
+
+```json
+{
+  "Version": "1",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": ["oss:PutObject"],
+    "Resource": [
+      "acs:oss:*:*:your-bucket/media/*",
+      "acs:oss:*:*:your-bucket/static/*"
+    ]
+  }]
+}
+```
+
+修改目录前缀时同步调整 RAM Resource。也支持 STS 临时凭据，需同时填写 `OSS_SECURITY_TOKEN` 并在过期前更新；项目不会自动续期。签名接口只允许已登录的管理员申请，限制文件后缀、声明 MIME、大小和服务端生成的单个随机对象键。它不执行文件内容审核、恶意文件扫描或视频转码。
+
+在 OSS Bucket 的跨域规则中允许实际管理站 Origin（例如 `https://admin.example.com`）执行 `POST`，允许请求头 `*`，可暴露 `ETag` 和 `x-oss-request-id`，预检缓存时间可设为 600 秒。本地调试时另行添加准确的管理站 HTTP Origin 和端口。应用的 `CORS_ORIGINS` 与 OSS 跨域规则分别管理，两处都需正确配置。
+
+在阿里云 CDN 创建 `cdn.example.com` 加速域名，以该 OSS Bucket 为源站，完成 CNAME 解析并配置 HTTPS 证书。推荐保持 Bucket 私有，按阿里云文档开启 CDN 私有 Bucket 回源授权；上传使用签名授权，公开访问使用 CDN。若自行选择公共读 Bucket，确认对象 ACL 和 Bucket 策略允许读取。这里的 CDN URL 用于公开博客，未实现访客 URL 鉴权，不要上传私密资料。
+
+CDN 对公开 JS、字体等跨域资源需要返回 `Access-Control-Allow-Origin: *`，并正确处理 `GET`、`HEAD`、`OPTIONS`；这是公开资源的读取规则，OSS 上传规则仍限定管理站 Origin。开启视频 Range 回源，保留正确的 `Content-Type`，以支持 MP4/WebM 播放和拖动进度。`media/*` 可设置合理缓存时间，上传对象使用随机文件名；删除文章或取消上传不会自动删除 OSS 对象。
+
+Docker 修改 `.env` 后重建后端容器，直接运行则重启后端。直传文件不经过应用 NGINX/Sanic，因此不需要为视频提高应用请求体上限。
+
+### 前端静态资源通过 CDN 发布
+
+图片和视频上传后自动使用 `CDN_BASE_URL`。前端 JS、CSS、字体和构建中的图片则在生产构建时设置独立版本目录：
+
+```dotenv
+CDN_BASE_URL=https://cdn.example.com
+OSS_STATIC_PREFIX=static
+VITE_API_BASE_URL=/api
+VITE_ASSET_BASE_URL=https://cdn.example.com/static/release-1/
+```
+
+每次发布更换 `release-1`，可用日期加 Git 提交号作为版本名。`VITE_ASSET_BASE_URL` 必须位于 `CDN_BASE_URL/OSS_STATIC_PREFIX/版本/` 下，与资源发布脚本使用的 `.env` 一致；不要把密钥写入 Vite 变量。页面 HTML 仍由站点提供，API 保持 `/api` 同源，模块脚本、样式和其他构建资源通过 CDN 加载。开发模式始终从本地 Vite 加载；留空 `VITE_ASSET_BASE_URL` 则生产构建也使用站点资源。
+
+项目提供 [backend/scripts/publish_static_assets.py](./backend/scripts/publish_static_assets.py)。脚本先验证构建地址和全部文件，再将静态文件上传到版本目录，设置正确的 MIME 和 `public,max-age=31536000,immutable` 缓存。它不上传 `index.html`，不删除旧版本资源，也不会修改云端 CDN 配置。请保留旧目录，供已打开的页面和回滚使用。
+
+直接运行时，激活后端虚拟环境后，在项目根目录执行：
+
+```bash
+cd frontend
+npm ci
+npm run build
+cd ..
+python backend/scripts/publish_static_assets.py frontend/dist --dry-run
+python backend/scripts/publish_static_assets.py frontend/dist
+```
+
+Vite 和发布脚本都读取根目录 `.env`。上传完成后，先确认新构建 `index.html` 中引用的 CDN 脚本和样式可以通过 HTTPS 读取，再把同一份 `frontend/dist` 部署到站点。
+
+Docker 部署无需在宿主机安装 Python：从构建好的前端镜像导出资源，通过后端临时容器上传。以下命令在项目根目录依次执行，保持使用同一份 `.env`：
+
+```bash
+docker compose build backend frontend
+
+# 临时容器只用于导出构建产物，不启动服务。
+cdn_dist_dir=$(mktemp -d)
+cdn_export_container=$(docker create sudothink-frontend)
+docker cp "$cdn_export_container:/usr/share/nginx/html/." "$cdn_dist_dir/"
+docker rm "$cdn_export_container"
+
+docker compose run --rm --no-deps \
+  --volume "$cdn_dist_dir:/static-dist:ro" \
+  backend python scripts/publish_static_assets.py /static-dist --dry-run
+docker compose run --rm --no-deps \
+  --volume "$cdn_dist_dir:/static-dist:ro" \
+  backend python scripts/publish_static_assets.py /static-dist
+```
+
+发布脚本失败时先修正配置或网络，保持旧前端容器运行；成功后检查新资源 URL，再执行 `docker compose up -d --no-build backend frontend`，并按前文检查和重载外部 NGINX。CDN 上的 JS/CSS 必须已可访问后才切换前端，否则页面会因缺少资源而无法打开。更换版本目录无需刷新旧目录缓存。
+
+配置参考：[OSS V4 表单签名](https://help.aliyun.com/zh/oss/developer-reference/signature-version-4-recommend)、[OSS CORS](https://help.aliyun.com/zh/oss/user-guide/configure-cross-origin-resource-sharing)、[CDN 加速 OSS 与私有回源](https://help.aliyun.com/zh/oss/user-guide/use-cdn-to-accelerate-access-to-oss)。
 
 前端验证：
 
@@ -432,6 +533,8 @@ python backend/scripts/upgrade_site_content.py
 | 删除分类 | DELETE | `/api/categories/<id>`（管理员） |
 | 关于我 | GET | `/api/about` |
 | 编辑关于我 | GET / PUT | `/api/admin/about`（管理员） |
+| 上传配置 | GET | `/api/admin/uploads/config`（管理员） |
+| OSS 直传凭证 | POST | `/api/admin/uploads/policy`（管理员） |
 | 标签列表 | GET | `/api/tags` |
 | 新增标签 | POST | `/api/tags`（管理员） |
 | 更新标签 | PUT | `/api/tags/<id>`（管理员） |

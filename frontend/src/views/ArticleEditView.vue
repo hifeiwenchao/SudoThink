@@ -6,14 +6,19 @@ import { articleApi, type Article } from '@/api/article'
 import { adminApi } from '@/api/admin'
 import { taxonomyApi, type Category, type TaxonomyItem } from '@/api/taxonomy'
 import RichTextEditor from '@/components/RichTextEditor.vue'
+import MediaUpload from '@/components/MediaUpload.vue'
 import ArticleContent from '@/components/ArticleContent.vue'
 import { getArticleText, hasArticleContent, toArticleHtml } from '@/utils/articleContent'
+import type { UploadedMedia } from '@/utils/mediaUpload'
 
 const route = useRoute()
 const router = useRouter()
 const loading = ref(false)
 const loadError = ref(false)
 const submitting = ref<'draft' | 'publish' | null>(null)
+const bodyUploading = ref(false)
+const coverUploading = ref(false)
+const hasPendingUploads = computed(() => bodyUploading.value || coverUploading.value)
 const previewVisible = ref(false)
 const currentArticleId = ref<number | null>(null)
 const isPublished = ref(false)
@@ -40,6 +45,7 @@ const readingMinutes = computed(() => Math.max(1, Math.ceil(wordCount.value / 30
 const coverUrl = computed(() => /^https?:\/\//i.test(form.cover.trim()) ? form.cover.trim() : '')
 const pageTitle = computed(() => currentArticleId.value ? '编辑文章' : '创作新文章')
 const saveStatus = computed(() => {
+  if (hasPendingUploads.value) return '正在上传文件，请等待完成或取消…'
   if (isDirty.value) return '有未保存的修改'
   if (savedAt.value) return `已保存于 ${savedAt.value}`
   return '开始记录你的想法'
@@ -94,7 +100,7 @@ async function loadArticle() {
 }
 
 async function submit(publish: boolean) {
-  if (submitting.value || loading.value || loadError.value) return
+  if (submitting.value || loading.value || loadError.value || hasPendingUploads.value) return
   if (!form.title.trim()) {
     ElMessage.warning('请先填写文章标题')
     return
@@ -161,9 +167,9 @@ async function loadTags() {
 }
 
 async function confirmLeave() {
-  if (!isDirty.value) return true
+  if (!isDirty.value && !hasPendingUploads.value) return true
   try {
-    await ElMessageBox.confirm('当前修改尚未保存，离开后将丢失。确定离开吗？', '离开编辑页', {
+    await ElMessageBox.confirm(hasPendingUploads.value ? '文件正在上传，离开会取消上传，未保存的修改也会丢失。确定离开吗？' : '当前修改尚未保存，离开后将丢失。确定离开吗？', '离开编辑页', {
       confirmButtonText: '离开',
       cancelButtonText: '继续编辑',
       type: 'warning',
@@ -175,9 +181,14 @@ async function confirmLeave() {
 }
 
 function beforeUnload(event: BeforeUnloadEvent) {
-  if (!isDirty.value) return
+  if (!isDirty.value && !hasPendingUploads.value) return
   event.preventDefault()
   event.returnValue = ''
+}
+
+function applyUploadedCover(result: UploadedMedia) {
+  if (loading.value || submitting.value || result.kind !== 'image') return
+  form.cover = result.url
 }
 
 onBeforeRouteLeave(confirmLeave)
@@ -208,16 +219,16 @@ onMounted(loadTags)
         <p class="save-status" role="status"><span :class="{ dirty: isDirty }" />{{ saveStatus }}</p>
       </div>
       <div class="header-actions">
-        <el-button :disabled="loading || loadError || !!submitting" @click="previewVisible = true">预览</el-button>
+        <el-button :disabled="loading || loadError || !!submitting || hasPendingUploads" @click="previewVisible = true">预览</el-button>
         <el-button
           :loading="submitting === 'draft'"
-          :disabled="loading || loadError || submitting === 'publish'"
+          :disabled="loading || loadError || submitting === 'publish' || hasPendingUploads"
           @click="submit(false)"
         >{{ isPublished ? '转为草稿' : '保存草稿' }}</el-button>
         <el-button
           type="primary"
           :loading="submitting === 'publish'"
-          :disabled="loading || loadError || submitting === 'draft'"
+          :disabled="loading || loadError || submitting === 'draft' || hasPendingUploads"
           @click="submit(true)"
         >{{ isPublished ? '更新文章' : '发布文章' }}</el-button>
       </div>
@@ -244,7 +255,7 @@ onMounted(loadTags)
           <label>文章正文 <span>*</span></label>
           <span class="body-hint">让想法有条理地呈现</span>
         </div>
-        <RichTextEditor v-model="form.content" :disabled="loading || !!submitting" />
+        <RichTextEditor :key="String(route.params.id || 'new')" v-model="form.content" :disabled="loading || !!submitting || coverUploading" @uploading-change="bodyUploading = $event" />
         <footer class="writing-footer">
           <span>正文 {{ wordCount.toLocaleString() }} 字</span>
           <span>预计阅读 {{ readingMinutes }} 分钟</span>
@@ -292,13 +303,14 @@ onMounted(loadTags)
               <p class="field-hint">选填，将显示在文章列表中。</p>
             </el-form-item>
             <el-form-item label="封面图片">
-              <el-input v-model="form.cover" maxlength="512" placeholder="https://example.com/cover.jpg" clearable />
+              <el-input v-model="form.cover" maxlength="512" placeholder="https://example.com/cover.jpg" clearable :disabled="hasPendingUploads" />
+              <MediaUpload :key="String(route.params.id || 'new')" class="cover-upload" kind="image" :disabled="loading || !!submitting || bodyUploading" @uploading-change="coverUploading = $event" @uploaded="applyUploadedCover" />
               <div v-if="coverUrl" class="cover-preview">
                 <el-image :src="coverUrl" fit="cover" alt="文章封面预览">
                   <template #error><div class="cover-error">图片暂时无法加载</div></template>
                 </el-image>
               </div>
-              <p class="field-hint">选填，粘贴可公开访问的图片地址。</p>
+              <p class="field-hint">选填，可填写公开图片地址或上传本地图片。</p>
             </el-form-item>
           </el-form>
         </section>
@@ -366,6 +378,7 @@ onMounted(loadTags)
 .settings-panel :deep(.el-textarea__inner) { font-size: 13px; line-height: 1.8; padding: 10px 12px 24px; resize: vertical; }
 .field-hint { margin: 8px 0 0; color: var(--el-text-color-secondary); line-height: 1.65; font-size: 12px; }
 .cover-preview { width: 100%; margin-top: 12px; aspect-ratio: 16 / 9; border-radius: 7px; overflow: hidden; background: var(--app-surface-muted); }
+.cover-upload { margin-top: 10px; }
 .cover-preview :deep(.el-image) { width: 100%; height: 100%; }
 .cover-error { display: grid; height: 100%; place-items: center; color: var(--el-text-color-secondary); font-size: 12px; }
 .publish-note { display: flex; align-items: flex-start; gap: 12px; padding: 16px 17px; border: 1px solid var(--el-color-primary-light-8); border-radius: 10px; background: var(--el-color-primary-light-9); }

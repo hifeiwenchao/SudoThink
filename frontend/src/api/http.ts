@@ -28,6 +28,7 @@ http.interceptors.response.use(
     return body
   },
   (error) => {
+    if (axios.isCancel(error)) return Promise.reject(error)
     const status = error?.response?.status
     const msg =
       error?.response?.data?.message ||

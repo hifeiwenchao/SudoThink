@@ -6,6 +6,7 @@ from app.api.admin.users import bp as users_bp
 from app.api.admin.articles import bp as articles_bp
 from app.api.admin.comments import bp as comments_bp
 from app.api.admin.about import bp as about_bp
+from app.api.admin.uploads import bp as uploads_bp
 
 
 bp = Blueprint.group(
@@ -14,6 +15,7 @@ bp = Blueprint.group(
     articles_bp,
     comments_bp,
     about_bp,
+    uploads_bp,
     url_prefix="/admin",
 )
 

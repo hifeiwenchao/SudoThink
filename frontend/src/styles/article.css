@@ -51,5 +51,6 @@
 }
 .article-prose pre code { color: inherit; background: none; padding: 0; font-size: 13px; }
 .article-prose img { display: block; max-width: 100%; height: auto; margin: 1.2em auto; border-radius: 6px; }
+.article-prose video { display: block; max-width: 100%; height: auto; margin: 1.2em auto; border-radius: 6px; background: #111; }
 .article-prose a { color: var(--el-color-primary); text-decoration: underline; text-underline-offset: 3px; }
 .article-prose hr { border: 0; border-top: 1px solid var(--el-border-color-lighter); margin: 2em 0; }
