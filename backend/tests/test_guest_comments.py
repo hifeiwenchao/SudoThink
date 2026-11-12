@@ -255,6 +255,7 @@ class GuestCommentTests(unittest.IsolatedAsyncioTestCase):
                 self.assertNotIn("email", response)
                 self.assertNotIn("ip_address", response)
                 self.assertNotIn("user_agent", response)
+                self.assertNotIn("location_detail", response)
         # Repeated approvals have the same privacy boundary as the first approval.
         repeated = self.data(await comments.approve_comment(
             self.request(user=self.reader), created["id"],
@@ -262,6 +263,7 @@ class GuestCommentTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("email", repeated)
         self.assertNotIn("ip_address", repeated)
         self.assertNotIn("user_agent", repeated)
+        self.assertNotIn("location_detail", repeated)
         self.assertTrue((await Comment.get(id=created["id"])).is_approved)
 
     async def test_admin_article_moderation_includes_guest_private_fields(self):

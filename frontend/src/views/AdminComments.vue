@@ -204,8 +204,8 @@ onBeforeUnmount(() => {
       <el-table-column label="IP 地址（不公开）" min-width="160">
         <template #default="{ row }">{{ row.ip_address || '未知' }}</template>
       </el-table-column>
-      <el-table-column label="IP 归属地" min-width="150">
-        <template #default="{ row }">{{ row.location || '未知' }}</template>
+      <el-table-column label="IP 详细地址" min-width="220" show-overflow-tooltip>
+        <template #default="{ row }">{{ row.location_detail || row.location || '未知' }}</template>
       </el-table-column>
       <el-table-column label="User-Agent（不公开）" width="220" show-overflow-tooltip>
         <template #default="{ row }">{{ row.user_agent || '未记录' }}</template>

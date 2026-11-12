@@ -1,4 +1,4 @@
-"""Comment client addresses and offline, privacy-limited IP locations."""
+"""Comment client addresses, public cities and private detailed IP locations."""
 from __future__ import annotations
 
 import asyncio
@@ -65,8 +65,8 @@ def get_comment_ip(request) -> str:
 class _QQWry:
     """Bounded reader for the traditional little-endian QQWry IPv4 .dat format.
 
-    Only the country/location field is read. The second field (ISP, street,
-    company or other area details) is deliberately never exposed or decoded.
+    The country/location field supplies geographic details. The second field
+    (ISP, company or other area details) is not decoded.
     This reader uses only the standard library, including on Python 3.15.
     """
 
@@ -274,7 +274,8 @@ _database_stamp = None
 _database = None
 
 
-def _locate_sync(address: IPv4Address, configured_path: str) -> str:
+def _lookup_sync(address: IPv4Address, configured_path: str) -> str:
+    """Read the geographic field; callers choose public or private formatting."""
     global _database_stamp, _database
     try:
         path = Path(configured_path).expanduser()
@@ -291,9 +292,13 @@ def _locate_sync(address: IPv4Address, configured_path: str) -> str:
                     except (OSError, ValueError, struct.error):
                         pass
             reader = _database
-        return _public_location(reader.lookup(address)) if reader is not None else "未知"
+        return reader.lookup(address) if reader is not None else "未知"
     except (OSError, ValueError, TypeError, UnicodeError, struct.error):
         return "未知"
+
+
+def _locate_sync(address: IPv4Address, configured_path: str) -> str:
+    return _public_location(_lookup_sync(address, configured_path))
 
 
 async def locate_comment_ip(ip: str) -> str:
@@ -308,3 +313,17 @@ async def locate_comment_ip(ip: str) -> str:
     if not settings.QQWRY_DB_PATH:
         return "未知"
     return await asyncio.to_thread(_locate_sync, address, settings.QQWRY_DB_PATH)
+
+
+async def locate_comment_ip_detail(ip: str) -> str:
+    """Resolve the full geographic field for the administrator-only view."""
+    try:
+        address = _address(ip, map_v4=False)
+    except (TypeError, ValueError):
+        return "未知"
+    if not isinstance(address, IPv4Address) or not address.is_global or address.is_multicast:
+        return "未知"
+    if not settings.QQWRY_DB_PATH:
+        return "未知"
+    result = await asyncio.to_thread(_lookup_sync, address, settings.QQWRY_DB_PATH)
+    return " ".join(result.split()) or "未知"

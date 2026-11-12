@@ -58,3 +58,6 @@ redis_data/
 
 # ===== Celery =====
 celerybeat-schedule*
+
+# ===== Local agent instructions =====
+AGENTS.md

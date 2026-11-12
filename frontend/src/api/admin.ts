@@ -47,6 +47,8 @@ export interface AdminComment {
   nickname?: string
   email?: string
   ip_address?: string
+  /** Full geographic location, available only to administrators. */
+  location_detail?: string
   location?: string
   user_agent?: string
   author: { id: number; username: string; nickname: string } | null

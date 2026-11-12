@@ -94,6 +94,35 @@ class CommentContextTests(unittest.IsolatedAsyncioTestCase):
                 with patch.object(context.settings, "QQWRY_DB_PATH", str(path)):
                     self.assertEqual(await context.locate_comment_ip("8.8.8.8"), "广东省深圳市")
 
+    async def test_detailed_location_retains_district_in_all_country_storage_modes(self):
+        context = self.module()
+        with tempfile.TemporaryDirectory() as directory:
+            for mode in range(4):
+                with self.subTest(mode=mode):
+                    path = Path(directory) / f"detailed-{mode}.dat"
+                    path.write_bytes(database([
+                        ("8.8.8.0", "8.8.8.255", "广东省深圳市南山区"),
+                    ], mode))
+                    with patch.object(context.settings, "QQWRY_DB_PATH", str(path)):
+                        self.assertEqual(await context.locate_comment_ip_detail("8.8.8.8"), "广东省深圳市南山区")
+                        self.assertEqual(await context.locate_comment_ip("8.8.8.8"), "广东省深圳市")
+
+    async def test_detailed_location_falls_back_for_missing_corrupt_or_disabled_database(self):
+        context = self.module()
+        with tempfile.TemporaryDirectory() as directory:
+            missing = Path(directory) / "missing.dat"
+            corrupt = Path(directory) / "corrupt.dat"
+            corrupt.write_bytes(b"broken database")
+            for path in (str(missing), str(corrupt), ""):
+                with self.subTest(path=path), patch.object(context.settings, "QQWRY_DB_PATH", path):
+                    self.assertEqual(await context.locate_comment_ip_detail("8.8.8.8"), "未知")
+
+    async def test_detailed_location_rejects_private_ipv6_and_invalid_addresses_without_lookup(self):
+        context = self.module()
+        for address in ("10.0.0.1", "127.0.0.1", "::1", "2001:4860:4860::8888", "::ffff:8.8.8.8", "bad", "", None):
+            with self.subTest(address=address), patch.object(context, "_lookup_sync", side_effect=AssertionError("unexpected database access")):
+                self.assertEqual(await context.locate_comment_ip_detail(address), "未知")
+
     async def test_domestic_shapes_and_foreign_countries_never_leak_district_or_isp(self):
         context = self.module()
         cases = (

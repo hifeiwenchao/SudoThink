@@ -46,7 +46,12 @@ def _moderation_comment_dict(c: Comment, *, include_private: bool = False) -> di
         } if c.author_id is not None else None,
     }
     if include_private:
-        result.update(email=c.email, ip_address=c.ip_address, user_agent=c.user_agent)
+        result.update(
+            email=c.email,
+            ip_address=c.ip_address,
+            user_agent=c.user_agent,
+            location_detail=c.location or "未知",
+        )
     return result
 
 

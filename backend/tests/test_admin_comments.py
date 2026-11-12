@@ -4,12 +4,14 @@ import os
 import unittest
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 os.environ["PYTHON_DOTENV_DISABLED"] = "1"
 os.environ.setdefault("JWT_SECRET", "admin-comment-tests-only-32-byte-secret")
 
 from tortoise import Tortoise
 
+from app.api import comment as public_comments
 from app.api.admin import comments
 from app.core.exceptions import ForbiddenError, UnauthorizedError, ValidationError
 from app.core.security import create_access_token
@@ -109,6 +111,32 @@ class AdminCommentTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(combined["total"], 1)
                 self.assertEqual([item["id"] for item in combined["items"]], [self.records[(self.published.id, status)]])
 
+    async def test_detailed_locations_are_resolved_once_per_ip_only_for_admin_display(self):
+        await Comment.all().update(location="上海市")
+        detail = "中国–上海–上海–宝山区"
+        resolver = AsyncMock(return_value=detail)
+        with patch.object(comments, "locate_comment_ip_detail", resolver):
+            result = self.data(await comments.list_comments(self.request(self.admin)))
+        resolver.assert_awaited_once_with("203.0.113.7")
+        for item in result["items"]:
+            self.assertEqual(item["location"], "上海")
+            self.assertEqual(item["location_detail"], detail)
+        self.assertEqual({record.location for record in await Comment.all()}, {"上海市"})
+
+        public = self.data(await public_comments.list_comments(self.request(), self.published.id))
+        self.assertEqual(public["total"], 1)
+        self.assertEqual(public["items"][0]["location"], "上海")
+        self.assertNotIn("location_detail", public["items"][0])
+        self.assertNotIn("宝山区", json.dumps(public, ensure_ascii=False))
+
+    async def test_unavailable_detailed_locations_fall_back_to_saved_locations(self):
+        for saved, expected in (("浙江省杭州市", "浙江省杭州市"), ("", "未知")):
+            with self.subTest(saved=saved):
+                await Comment.all().update(location=saved)
+                with patch.object(comments, "locate_comment_ip_detail", AsyncMock(return_value="未知")):
+                    result = self.data(await comments.list_comments(self.request(self.admin)))
+                self.assertEqual({item["location_detail"] for item in result["items"]}, {expected})
+
     async def test_article_filter_with_no_status_includes_all_article_states(self):
         result = self.data(await comments.list_comments(self.request(
             self.admin, article_id=str(self.draft.id),
@@ -143,11 +171,14 @@ class AdminCommentTests(unittest.IsolatedAsyncioTestCase):
                 await comments.list_comments(self.request(self.admin, **args))
 
     async def test_list_requires_an_active_administrator(self):
-        for user, error in (
-            (None, UnauthorizedError), (self.reader, ForbiddenError), (self.inactive, UnauthorizedError),
-        ):
-            with self.subTest(user=user), self.assertRaises(error):
-                await comments.list_comments(self.request(user))
+        resolver = AsyncMock()
+        with patch.object(comments, "locate_comment_ip_detail", resolver):
+            for user, error in (
+                (None, UnauthorizedError), (self.reader, ForbiddenError), (self.inactive, UnauthorizedError),
+            ):
+                with self.subTest(user=user), self.assertRaises(error):
+                    await comments.list_comments(self.request(user))
+        resolver.assert_not_awaited()
 
 
 if __name__ == "__main__":

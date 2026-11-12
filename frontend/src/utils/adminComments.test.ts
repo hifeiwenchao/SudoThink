@@ -55,6 +55,7 @@ function comment(id: number, status: AdminComment['status'] = 'pending'): AdminC
   return {
     id, status, is_approved: status === 'approved', content: `评论 ${id}`, nickname: '访客',
     email: 'private@example.com', ip_address: '203.0.113.7', location: '浙江省杭州市',
+    location_detail: '浙江省杭州市西湖区',
     user_agent: id === 3 ? '' : 'TestBrowser/1.0 (Linux)',
     created_at: '2026-11-12T08:00:00Z', article, author: null,
   }
@@ -114,7 +115,8 @@ test('article and status filters combine on the unified endpoint and reset the p
 
 test('status tags and available review actions match each row, with public links only for published articles', async (t) => {
   const view = await mount({ comments: async () => page([
-    comment(1), comment(2, 'approved'), { ...comment(3, 'rejected'), article: { ...article, id: 43, title: '草稿文章', is_published: false } },
+    comment(1), { ...comment(2, 'approved'), location_detail: '' },
+    { ...comment(3, 'rejected'), location: '', location_detail: '', article: { ...article, id: 43, title: '草稿文章', is_published: false } },
   ]) })
   t.after(view.unmount)
   const rows = [...view.container.querySelectorAll<HTMLElement>('tr.el-table__row')]
@@ -128,7 +130,9 @@ test('status tags and available review actions match each row, with public links
   assert.ok(rows[2].textContent?.includes('草稿'))
   assert.ok(rows[0].textContent?.includes('private@example.com'))
   assert.ok(rows[0].textContent?.includes('203.0.113.7'))
-  assert.ok(rows[0].textContent?.includes('浙江省杭州市'))
+  assert.ok(rows[0].textContent?.includes('浙江省杭州市西湖区'))
+  assert.ok(rows[1].textContent?.includes('浙江省杭州市'))
+  assert.ok(rows[2].textContent?.includes('未知'))
   assert.ok(rows[0].textContent?.includes('TestBrowser/1.0 (Linux)'))
   assert.ok(rows[2].textContent?.includes('未记录'))
 })

@@ -2,6 +2,7 @@
 from sanic import Blueprint, Request
 
 from app.api.comment import _comment_pagination, _moderation_comment_dict
+from app.core.comment_context import locate_comment_ip_detail
 from app.core.exceptions import ForbiddenError, ValidationError
 from app.core.response import success
 from app.middlewares.auth import login_required
@@ -50,14 +51,22 @@ async def list_comments(request: Request):
         .prefetch_related("author", "article")
     )
 
-    items = [
-        {
-            **_moderation_comment_dict(c, include_private=True),
+    items = []
+    locations = {}
+    for comment in comments:
+        item = {
+            **_moderation_comment_dict(comment, include_private=True),
             "article": {
-                "id": c.article.id, "title": c.article.title,
-                "is_published": c.article.is_published,
+                "id": comment.article.id, "title": comment.article.title,
+                "is_published": comment.article.is_published,
             },
         }
-        for c in comments
-    ]
+        # Stored locations contain only province/city names. Resolve the full
+        # location for this private view, once per IP on the current page.
+        if comment.ip_address not in locations:
+            locations[comment.ip_address] = await locate_comment_ip_detail(comment.ip_address)
+        detail = locations[comment.ip_address]
+        if detail != "未知":
+            item["location_detail"] = detail
+        items.append(item)
     return success({"items": items, "total": total, "page": page, "size": size})
