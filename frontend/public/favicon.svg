@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none">
+  <title>SudoThink</title>
+  <defs>
+    <linearGradient id="background" x1="8" y1="4" x2="57" y2="64" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#173E2B"/>
+      <stop offset="1" stop-color="#102219"/>
+    </linearGradient>
+  </defs>
+  <rect x="1" y="1" width="62" height="62" rx="16" fill="url(#background)" stroke="#2B5840" stroke-width="2"/>
+  <path d="m17 22 11 10-11 10m19 0h12" stroke="#B6F4CB" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="46" cy="21" r="3.2" fill="#63D89A"/>
+</svg>
