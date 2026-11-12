@@ -29,7 +29,8 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
-        VITE_ASSET_BASE_URL: ${VITE_ASSET_BASE_URL:-}
+        CDN_BASE_URL: ${CDN_BASE_URL:-}
+        OSS_STATIC_PREFIX: ${OSS_STATIC_PREFIX-static}
         VITE_ICP_NUMBER: ${VITE_ICP_NUMBER:-}
     container_name: sudothink-frontend
     restart: unless-stopped

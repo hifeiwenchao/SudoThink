@@ -347,7 +347,7 @@ pnpm dev                    # 或 npm run dev
 
 在项目根目录 `.env` 中设置 `VITE_ICP_NUMBER` 为实际 ICP 备案号，公开站点和管理站点的页脚会显示该号码，并链接到工信部备案查询网站 <https://beian.miit.gov.cn/>。默认留空时隐藏备案信息，个人备案号无需写入代码或提交到仓库。
 
-该配置在前端构建时生效。Docker 部署修改后执行 `docker compose build frontend`，再执行 `docker compose up -d --no-deps frontend`；本地开发修改后重启 Vite，直接部署静态文件时重新执行 `npm run build`。如果启用了静态资源 CDN，请按下文的 CDN 发布流程上传新版本资源后再切换前端。
+该配置在前端构建时生效。Docker 部署修改后执行 `docker compose build frontend`，再执行 `docker compose up -d --no-deps frontend`；本地开发修改后重启 Vite，直接部署静态文件时重新执行 `npm run build`。如果启用了静态资源 CDN，请按下文的 CDN 发布流程上传资源并手动刷新 CDN 后再切换前端。
 
 ## 工具箱
 
@@ -428,7 +428,7 @@ OSS_MEDIA_CACHE_SECONDS=31536000
 
 CDN 对公开 JS、字体等跨域资源需要返回 `Access-Control-Allow-Origin: *`，并正确处理 `GET`、`HEAD`、`OPTIONS`；这是公开资源的读取规则，OSS 上传规则仍限定管理站 Origin。开启视频 Range 回源，保留正确的 `Content-Type`，以支持 MP4/WebM 播放和拖动进度。`media/*` 可设置合理缓存时间，上传对象使用随机文件名；删除文章或取消上传不会自动删除 OSS 对象。
 
-`OSS_MEDIA_CACHE_SECONDS` 控制新上传图片、视频的缓存时长，单位为秒，须为非负整数，默认 `31536000`（365 天）。正数会在上传时写入 OSS 对象元数据 `Cache-Control: public,max-age=<秒数>,immutable`，设为 `0` 则写入 `Cache-Control: no-store`。正文、封面和“关于我”的媒体上传共用该配置；前端 JS/CSS 等静态资源仍使用一年缓存。CDN 需遵循源站缓存头；如果路径规则强制指定缓存时长，应同步调整该规则。
+`OSS_MEDIA_CACHE_SECONDS` 控制新上传图片、视频的缓存时长，单位为秒，须为非负整数，默认 `31536000`（365 天）。正数会在上传时写入 OSS 对象元数据 `Cache-Control: public,max-age=<秒数>,immutable`，设为 `0` 则写入 `Cache-Control: no-store`。正文、封面和“关于我”的媒体上传共用该配置；前端 JS/CSS 等静态资源使用下文的独立缓存策略。CDN 需遵循源站缓存头；如果路径规则强制指定缓存时长，应同步调整该规则。
 
 修改该参数只影响后续上传，已有对象保留原元数据。已有资源需修改 OSS 的 `Cache-Control` 元数据并刷新 CDN，或重新上传生成新 URL；浏览器已保存长缓存的资源优先通过新 URL 更新。
 
@@ -436,18 +436,18 @@ Docker 修改 `.env` 后重建后端容器，直接运行则重启后端。直�
 
 ### 前端静态资源通过 CDN 发布
 
-图片和视频上传后自动使用 `CDN_BASE_URL`。前端 JS、CSS、字体和构建中的图片则在生产构建时设置独立版本目录：
+图片和视频上传后自动使用 `CDN_BASE_URL`。前端 JS、CSS、字体和构建中的图片在生产构建时也使用以下两项配置，自动生成固定静态目录：
 
 ```dotenv
 CDN_BASE_URL=https://cdn.example.com
 OSS_STATIC_PREFIX=static
-VITE_API_BASE_URL=/api
-VITE_ASSET_BASE_URL=https://cdn.example.com/static/release-1/
 ```
 
-每次发布更换 `release-1`，可用日期加 Git 提交号作为版本名。`VITE_ASSET_BASE_URL` 必须位于 `CDN_BASE_URL/OSS_STATIC_PREFIX/版本/` 下，与资源发布脚本使用的 `.env` 一致；不要把密钥写入 Vite 变量。页面 HTML 仍由站点提供，API 保持 `/api` 同源，模块脚本、样式和其他构建资源通过 CDN 加载。开发模式始终从本地 Vite 加载；留空 `VITE_ASSET_BASE_URL` 则生产构建也使用站点资源。
+生产构建在 `CDN_BASE_URL` 非空时，自动以 `CDN_BASE_URL/OSS_STATIC_PREFIX/` 为资源地址，例如 `https://cdn.example.com/static/`；留空 `CDN_BASE_URL` 则使用站点本身。开发模式始终从本地 Vite 加载。每次发布复用固定目录，构建资源使用稳定文件名，不附加内容哈希，上传时覆盖同名文件。页面 HTML 仍由站点提供，API 保持 `/api` 同源。
 
-项目提供 [backend/scripts/publish_static_assets.py](./backend/scripts/publish_static_assets.py)。脚本先验证构建地址和全部文件，再将静态文件上传到版本目录，设置正确的 MIME 和 `public,max-age=31536000,immutable` 缓存。它不上传 `index.html`，不删除旧版本资源，也不会修改云端 CDN 配置。请保留旧目录，供已打开的页面和回滚使用。
+Vite 和发布脚本使用根目录的同一份 `.env`。Docker Compose 将公开的 `CDN_BASE_URL` 和 `OSS_STATIC_PREFIX` 作为 frontend 构建参数传入；访问密钥仍仅由后端和发布脚本使用，不会作为前端构建参数或客户端环境变量传入。修改这两项中的任一项后，需重新构建前端。
+
+项目提供 [backend/scripts/publish_static_assets.py](./backend/scripts/publish_static_assets.py)。脚本直接从 `CDN_BASE_URL` 和 `OSS_STATIC_PREFIX` 推导上传目录并校验构建地址，无需另设资源 URL。验证全部文件后，将静态文件上传到固定目录，设置正确的 MIME 和 `Cache-Control: public,max-age=0,s-maxage=31536000,must-revalidate`。浏览器使用前会校验缓存，CDN 可缓存一年；CDN 需遵循源站缓存头，或为 `/static/` 配置一年缓存并让浏览器缓存遵循源站（修改了 `OSS_STATIC_PREFIX` 时使用对应路径）。脚本不上传 `index.html`，不清理云端历史资源，也不自动刷新 CDN。
 
 直接运行时，激活后端虚拟环境后，在项目根目录执行：
 
@@ -460,7 +460,7 @@ python backend/scripts/publish_static_assets.py frontend/dist --dry-run
 python backend/scripts/publish_static_assets.py frontend/dist
 ```
 
-Vite 和发布脚本都读取根目录 `.env`。上传完成后，先确认新构建 `index.html` 中引用的 CDN 脚本和样式可以通过 HTTPS 读取，再把同一份 `frontend/dist` 部署到站点。
+上传完成后，在阿里云 CDN 控制台手动执行目录刷新，例如刷新 `https://cdn.example.com/static/`，等待刷新完成并确认新构建 `index.html` 引用的 CDN 脚本和样式已更新且可通过 HTTPS 读取，再把同一份 `frontend/dist` 部署到站点。固定 URL 会覆盖线上同名资源，上传及刷新期间已打开的页面可能受影响，建议选择低流量时段发布。
 
 Docker 部署无需在宿主机安装 Python：从构建好的前端镜像导出资源，通过后端临时容器上传。以下命令在项目根目录依次执行，保持使用同一份 `.env`：
 
@@ -473,15 +473,17 @@ cdn_export_container=$(docker create sudothink-frontend)
 docker cp "$cdn_export_container:/usr/share/nginx/html/." "$cdn_dist_dir/"
 docker rm "$cdn_export_container"
 
-docker compose run --rm --no-deps \
+docker compose run --rm --no-deps --interactive=false \
   --volume "$cdn_dist_dir:/static-dist:ro" \
   backend python scripts/publish_static_assets.py /static-dist --dry-run
-docker compose run --rm --no-deps \
+docker compose run --rm --no-deps --interactive=false \
   --volume "$cdn_dist_dir:/static-dist:ro" \
   backend python scripts/publish_static_assets.py /static-dist
 ```
 
-发布脚本失败时先修正配置或网络，保持旧前端容器运行；成功后检查新资源 URL，再执行 `docker compose up -d --no-build backend frontend`，并按前文检查和重载外部 NGINX。CDN 上的 JS/CSS 必须已可访问后才切换前端，否则页面会因缺少资源而无法打开。更换版本目录无需刷新旧目录缓存。
+`--interactive=false` 避免临时容器读取标准输入，支持通过 `ssh ... bash -s` 执行整段脚本。发布脚本失败时先修正配置或网络；上传成功后手动刷新 CDN 静态目录，等待刷新完成并检查新资源 URL，再执行 `docker compose up -d --no-build backend frontend`，并按前文检查和重载外部 NGINX。CDN 上的 JS/CSS 必须已更新且可访问后才切换前端，否则页面可能加载到旧资源或因缺少资源而无法打开。
+
+已有的 `release-*` 目录不会自动删除。迁移并确认站点使用固定目录后，可自行清理不再引用的旧目录。
 
 配置参考：[OSS V4 表单签名](https://help.aliyun.com/zh/oss/developer-reference/signature-version-4-recommend)、[OSS CORS](https://help.aliyun.com/zh/oss/user-guide/configure-cross-origin-resource-sharing)、[CDN 加速 OSS 与私有回源](https://help.aliyun.com/zh/oss/user-guide/use-cdn-to-accelerate-access-to-oss)。
 

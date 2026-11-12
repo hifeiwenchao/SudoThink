@@ -145,7 +145,7 @@ def sign_post_policy(
 ) -> dict:
     """Sign one exact object; callers separately enforce their allowed media types.
 
-    The static publisher reuses this function for CSS/JS and immutable cache headers.
+    The static publisher reuses this function for CSS/JS and their cache headers.
     Each supplied form field is pinned by an exact policy condition; the binary
     ``file`` part must be added last by the client, using the same MIME type.
     """

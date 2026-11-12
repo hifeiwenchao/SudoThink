@@ -1,7 +1,7 @@
-"""Publish a versioned Vite build to OSS before switching the site's HTML.
+"""Publish a Vite build to a fixed OSS directory before switching the site's HTML.
 
 The .env credentials stay in this process. Only built resources are uploaded;
-index.html stays at the web origin. Existing OSS objects are never deleted.
+index.html stays at the web origin. Matching keys are overwritten; no objects are deleted.
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from uuid import uuid4
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT))
 
-CACHE_CONTROL = "public,max-age=31536000,immutable"
+CACHE_CONTROL = "public,max-age=0,s-maxage=31536000,must-revalidate"
 MAX_ASSET_BYTES = 50 * 1024 * 1024
 CONTENT_TYPES = {
     ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css",
@@ -69,20 +69,13 @@ class _BuildReferences(HTMLParser):
 
 
 def plan_assets(
-    *, directory: Path, asset_base_url: str, cdn_base_url: str, static_prefix: str,
+    *, directory: Path, cdn_base_url: str, static_prefix: str,
 ) -> list[StaticAsset]:
     """Validate the complete build before any upload can occur."""
     cdn_base = _https_base(cdn_base_url)
-    asset_base = _https_base(asset_base_url) + "/"
     prefix = _safe_path(static_prefix.strip("/"))
-    required_prefix = f"{cdn_base}/{prefix}/"
-    if not asset_base.startswith(required_prefix):
-        raise ValueError("VITE_ASSET_BASE_URL 必须位于 CDN_BASE_URL/OSS_STATIC_PREFIX/ 下")
-    version = asset_base[len(required_prefix):].rstrip("/")
-    _safe_path(version)
-    if "/" in version:
-        raise ValueError("请为静态构建使用一个独立版本目录，例如 static/release-1/")
-    object_prefix = f"{prefix}/{version}"
+    asset_base = f"{cdn_base}/{prefix}/"
+    object_prefix = prefix
     if directory.is_symlink() or not directory.is_dir():
         raise ValueError("构建目录不存在或是符号链接")
     index = directory / "index.html"
@@ -94,7 +87,7 @@ def plan_assets(
         raise ValueError("index.html 没有可发布的脚本或样式资源")
     for url in parser.urls:
         if not url.startswith(asset_base) or urlsplit(url).query or urlsplit(url).fragment:
-            raise ValueError("构建中的资源地址与 VITE_ASSET_BASE_URL 不一致，请重新构建")
+            raise ValueError("构建中的资源地址与 CDN_BASE_URL/OSS_STATIC_PREFIX/ 不一致，请重新构建")
         relative = _safe_path(unquote(url[len(asset_base):]))
         if not (directory / relative).is_file():
             raise ValueError(f"构建缺少入口资源：{relative}")
@@ -157,16 +150,14 @@ def main(argv: list[str] | None = None) -> int:
     arguments = parser.parse_args(argv)
     from app.core.config import settings
     from app.core.oss import sign_post_policy
-    import os
 
     try:
         assets = plan_assets(
             directory=arguments.directory,
-            asset_base_url=os.getenv("VITE_ASSET_BASE_URL", ""),
             cdn_base_url=settings.CDN_BASE_URL, static_prefix=settings.OSS_STATIC_PREFIX,
         )
         if arguments.dry_run:
-            print(f"检查通过：{len(assets)} 个资源；HTML 保留在站点，OSS 旧资源保留。")
+            print(f"检查通过：{len(assets)} 个资源；HTML 保留在站点，同名 OSS 资源将被覆盖。")
             return 0
         for asset in assets:
             form = sign_post_policy(
@@ -175,7 +166,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             post_asset(asset, form)
             print(f"已上传 {asset.key}")
-        print(f"发布完成：{len(assets)} 个资源。请确认 CDN 可读取新资源后再切换前端容器。")
+        print(f"发布完成：{len(assets)} 个资源。请手动刷新 CDN 静态目录并验证新资源后再切换前端容器。")
         return 0
     except ValueError as error:
         print(str(error), file=sys.stderr)

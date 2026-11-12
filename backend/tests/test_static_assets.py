@@ -21,13 +21,13 @@ class StaticAssetTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.dist = Path(self.directory.name)
-        self.base = "https://cdn.example.com/blog/static/release-1/"
+        self.base = "https://cdn.example.com/blog/static/"
         (self.dist / "assets").mkdir()
-        (self.dist / "assets/app-123.js").write_text("export const ready = true")
-        (self.dist / "assets/app-123.css").write_text("body {color: black}")
+        (self.dist / "assets/app.js").write_text("export const ready = true")
+        (self.dist / "assets/app.css").write_text("body {color: black}")
         (self.dist / "index.html").write_text(
-            f'<script type="module" src="{self.base}assets/app-123.js"></script>'
-            f'<link rel="stylesheet" href="{self.base}assets/app-123.css">'
+            f'<script type="module" src="{self.base}assets/app.js"></script>'
+            f'<link rel="stylesheet" href="{self.base}assets/app.css">'
         )
         spec = importlib.util.spec_from_file_location("publish_static_assets_test_module", SCRIPT)
         self.module = importlib.util.module_from_spec(spec)
@@ -36,31 +36,51 @@ class StaticAssetTests(unittest.TestCase):
 
     def plan(self, **overrides):
         arguments = dict(
-            directory=self.dist, asset_base_url=self.base,
+            directory=self.dist,
             cdn_base_url="https://cdn.example.com/blog", static_prefix="static",
         )
         arguments.update(overrides)
         return self.module.plan_assets(**arguments)
 
-    def test_plan_keeps_html_at_origin_and_maps_versioned_cdn_paths_to_oss_keys(self):
+    def test_plan_keeps_html_at_origin_and_maps_fixed_cdn_paths_to_oss_keys(self):
         assets = self.plan()
         self.assertEqual([asset.key for asset in assets], [
-            "static/release-1/assets/app-123.css", "static/release-1/assets/app-123.js",
+            "static/assets/app.css", "static/assets/app.js",
         ])
         self.assertEqual([asset.content_type for asset in assets], ["text/css", "text/javascript"])
-        self.assertEqual([asset.path.name for asset in assets], ["app-123.css", "app-123.js"])
+        self.assertEqual([asset.path.name for asset in assets], ["app.css", "app.js"])
 
-    def test_plan_refuses_origin_builds_wrong_domains_and_unversioned_prefixes(self):
-        for base in ("", "/", "https://other.example.com/static/release-1/",
-                     "https://cdn.example.com/blog/static/", self.base + "?token=secret"):
+    def test_plan_refuses_origin_builds_wrong_domains_and_nonmatching_directories(self):
+        for base in ("", "/", "https://other.example.com/static/",
+                     self.base + "release-1/", "https://cdn.example.com/blog/static-other/",
+                     self.base + "?token=secret"):
+            (self.dist / "index.html").write_text(f'<script type="module" src="{base}assets/app.js"></script>')
             with self.subTest(base=base), self.assertRaises(ValueError):
-                self.plan(asset_base_url=base)
-        (self.dist / "index.html").write_text('<script type="module" src="/assets/app-123.js"></script>')
+                self.plan()
+        (self.dist / "index.html").write_text('<script type="module" src="/assets/app.js"></script>')
         with self.assertRaises(ValueError):
             self.plan()
 
+    def test_custom_prefix_is_used_for_both_build_validation_and_object_keys(self):
+        (self.dist / "index.html").write_text(
+            '<script type="module" src="https://cdn.example.com/blog/web/static/assets/app.js"></script>'
+        )
+        assets = self.plan(cdn_base_url="https://cdn.example.com/blog/", static_prefix="/web/static/")
+        self.assertEqual([asset.key for asset in assets], [
+            "web/static/assets/app.css", "web/static/assets/app.js",
+        ])
+
+    def test_invalid_cdn_or_static_prefix_is_rejected(self):
+        for cdn in ("", "http://cdn.example.com", "https://user:secret@cdn.example.com",
+                    "https://cdn.example.com/?token=secret", "https://cdn.example.com/#fragment"):
+            with self.subTest(cdn=cdn), self.assertRaises(ValueError):
+                self.plan(cdn_base_url=cdn)
+        for prefix in ("", "../static", "static//assets", "static?token=secret"):
+            with self.subTest(prefix=prefix), self.assertRaises(ValueError):
+                self.plan(static_prefix=prefix)
+
     def test_missing_entry_assets_and_traversal_are_rejected_before_publishing(self):
-        for suffix in ("assets/missing.js", "../app.js", "%2e%2e/app.js", "assets/app-123.js?token=1"):
+        for suffix in ("assets/missing.js", "../app.js", "%2e%2e/app.js", "assets/app.js?token=1"):
             (self.dist / "index.html").write_text(f'<script type="module" src="{self.base}{suffix}"></script>')
             with self.subTest(suffix=suffix), self.assertRaises(ValueError):
                 self.plan()
@@ -72,7 +92,7 @@ class StaticAssetTests(unittest.TestCase):
             with self.subTest(filename=filename), self.assertRaises(ValueError):
                 self.plan()
             file.unlink()
-        (self.dist / "assets/link.js").symlink_to(self.dist / "assets/app-123.js")
+        (self.dist / "assets/link.js").symlink_to(self.dist / "assets/app.js")
         with self.assertRaises(ValueError):
             self.plan()
 
@@ -85,7 +105,7 @@ class StaticAssetTests(unittest.TestCase):
                 captured["body"] = self.rfile.read(int(self.headers["Content-Length"]))
                 self.send_response(201)
                 self.end_headers()
-                self.wfile.write(b"<PostResponse><Key>static/release-1/assets/app-123.css</Key></PostResponse>")
+                self.wfile.write(b"<PostResponse><Key>static/assets/app.css</Key></PostResponse>")
 
             def log_message(self, *args):
                 pass
@@ -99,7 +119,7 @@ class StaticAssetTests(unittest.TestCase):
         form = {
             "upload_url": f"http://127.0.0.1:{server.server_port}/",
             "fields": {"key": asset.key, "policy": "signed-policy", "Content-Type": "text/css",
-                       "Cache-Control": "public,max-age=31536000,immutable"},
+                       "Cache-Control": "public,max-age=0,s-maxage=31536000,must-revalidate"},
         }
         self.module.post_asset(asset, form)
         self.assertNotIn("Authorization", captured["headers"])
