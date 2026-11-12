@@ -37,7 +37,7 @@ class Settings:
     JWT_SECRET: str = os.getenv("JWT_SECRET", "change-me-jwt")
     JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = _int(
-        os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES"), 120
+        os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES"), 43200
     )
 
     # MySQL

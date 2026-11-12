@@ -36,6 +36,9 @@ const isAdmin = computed(() => userStore.user?.is_admin === true)
           <el-menu-item index="/admin/about">
             <span>关于我</span>
           </el-menu-item>
+          <el-menu-item index="/admin/donations">
+            <span>打赏设置</span>
+          </el-menu-item>
           <el-menu-item index="/admin/comments">
             <el-icon><i class="el-icon-chat-line-round" /></el-icon>
             <span>评论审核</span>

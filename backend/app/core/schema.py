@@ -5,9 +5,10 @@ from tortoise import Tortoise, connections
 async def upgrade_site_content_schema() -> None:
     """Create missing tables and add category weights without replacing existing data.
 
-    ``generate_schemas(safe=True)`` creates the new AboutPage table, but does not
-    alter an existing categories table. Check MySQL metadata before adding its
-    weight column so this command is safe to run again after an interrupted run.
+    ``generate_schemas(safe=True)`` creates the AboutPage and DonationSettings
+    tables, but does not alter an existing categories table. Check MySQL metadata
+    before adding its weight column so this command is safe to run again after
+    an interrupted run.
     """
     connection = connections.get("default")
     if connection.capabilities.dialect != "mysql":

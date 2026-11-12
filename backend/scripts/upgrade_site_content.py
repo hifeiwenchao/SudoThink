@@ -1,4 +1,4 @@
-"""Upgrade existing MySQL databases for category weights and the About page.
+"""Upgrade existing MySQL databases for category weights, About and donation settings.
 
 Run after deploying the new backend code and before starting application workers::
 
@@ -37,7 +37,7 @@ async def upgrade() -> None:
         await upgrade_site_content_schema()
     finally:
         await Tortoise.close_connections()
-    print("分类权重与关于我页面结构升级完成，现有数据已保留")
+    print("分类权重、关于我页面与打赏设置结构升级完成，现有数据已保留")
 
 
 if __name__ == "__main__":
