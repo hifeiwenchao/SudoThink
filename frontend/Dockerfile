@@ -19,6 +19,8 @@ RUN npm run build
 
 FROM nginx:1.27-alpine AS runtime
 
+# 只保留本项目的构建产物，避免导出 CDN 资源时混入默认 HTML 页面。
+RUN rm -f /usr/share/nginx/html/index.html /usr/share/nginx/html/50x.html
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY ./nginx.conf /etc/nginx/conf.d/default.conf
 
