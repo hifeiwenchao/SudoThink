@@ -1,12 +1,16 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { commentsApi, type PublicComment } from '@/api/comments'
-import { readCommenter, saveCommenter, validateComment } from '@/utils/commenter'
+import { readCommenter, saveCommenter, validateComment, validateCommenter, type Commenter } from '@/utils/commenter'
 
 const props = defineProps<{ articleId: number }>()
 const remembered = readCommenter()
 const nickname = ref(remembered.nickname)
 const email = ref(remembered.email)
+const savedIdentity = ref<Commenter | null>(validateCommenter(remembered) ? null : remembered)
+const editingIdentity = ref(!savedIdentity.value)
+const nicknameInput = ref<HTMLInputElement | null>(null)
+const identityButton = ref<HTMLButtonElement | null>(null)
 const content = ref('')
 const comments = ref<PublicComment[]>([])
 const total = ref(0)
@@ -22,6 +26,22 @@ let listRequest: AbortController | undefined
 let submitRequest: AbortController | undefined
 let requestVersion = 0
 let disposed = false
+
+async function toggleIdentity() {
+  if (submitting.value || !savedIdentity.value) return
+  submitError.value = ''
+  if (editingIdentity.value) {
+    nickname.value = savedIdentity.value.nickname
+    email.value = savedIdentity.value.email
+    editingIdentity.value = false
+  } else {
+    editingIdentity.value = true
+  }
+  await nextTick()
+  if (disposed) return
+  if (editingIdentity.value) nicknameInput.value?.focus()
+  else identityButton.value?.focus()
+}
 
 async function load(targetPage = page.value) {
   listRequest?.abort()
@@ -60,6 +80,8 @@ async function submit() {
     }, submitRequest.signal)
     if (disposed) return
     saveCommenter(identity)
+    savedIdentity.value = identity
+    editingIdentity.value = false
     nickname.value = identity.nickname
     email.value = identity.email
     content.value = ''
@@ -100,10 +122,22 @@ onBeforeUnmount(() => {
     </header>
 
     <form class="comment-form" novalidate :aria-busy="submitting" @submit.prevent="submit">
-      <div class="comment-identity">
+      <div v-if="savedIdentity" class="comment-identity-summary">
+        <p>以 <strong>{{ savedIdentity.nickname }}</strong> 评论</p>
+        <button
+          ref="identityButton"
+          type="button"
+          :data-action="editingIdentity ? 'cancel-identity' : 'edit-identity'"
+          :aria-expanded="editingIdentity"
+          :aria-controls="`comment-identity-${articleId}`"
+          :disabled="submitting"
+          @click="toggleIdentity"
+        >{{ editingIdentity ? '取消修改' : '修改信息' }}</button>
+      </div>
+      <div v-if="editingIdentity" :id="`comment-identity-${articleId}`" class="comment-identity">
         <div class="comment-field">
           <label :for="`comment-nickname-${articleId}`">昵称 <span aria-hidden="true">*</span></label>
-          <input :id="`comment-nickname-${articleId}`" v-model="nickname" name="nickname" autocomplete="nickname" required maxlength="64" :disabled="submitting" :aria-describedby="`comment-help-${articleId}`" placeholder="中文、英文、数字或下划线" />
+          <input :id="`comment-nickname-${articleId}`" ref="nicknameInput" v-model="nickname" name="nickname" autocomplete="nickname" required maxlength="64" :disabled="submitting" :aria-describedby="`comment-help-${articleId}`" placeholder="中文、英文、数字或下划线" />
         </div>
         <div class="comment-field">
           <label :for="`comment-email-${articleId}`">邮箱 <small>选填，不公开</small></label>
@@ -114,7 +148,7 @@ onBeforeUnmount(() => {
         <label :for="`comment-content-${articleId}`">评论内容 <span aria-hidden="true">*</span></label>
         <textarea :id="`comment-content-${articleId}`" v-model="content" name="content" required rows="5" maxlength="2000" :disabled="submitting" :aria-describedby="`comment-help-${articleId}`" placeholder="分享你的想法，让交流继续。" />
       </div>
-      <p :id="`comment-help-${articleId}`" class="comment-help">昵称 1–32 字，正文 1–1000 字。昵称和邮箱会在提交成功后保存在当前浏览器，可随时修改，邮箱不公开。评论会记录 IP，审核后展示昵称与归属地，不展示 IP 地址。</p>
+      <p :id="`comment-help-${articleId}`" class="comment-help"><template v-if="editingIdentity">昵称 1–32 字，邮箱选填，提交成功后会记住并收起。昵称仅限中文、英文、数字或下划线。</template>正文 1–1000 字，审核后展示。邮箱不公开，IP 仅用于管理和归属地展示。</p>
       <div class="comment-form-actions">
         <span class="comment-count" :class="{ exceeded: contentLength > 1000 }">{{ contentLength }} / 1000</span>
         <button type="submit" class="comment-submit" :disabled="submitting">{{ submitting ? '正在提交…' : '提交评论' }}</button>
@@ -157,6 +191,12 @@ onBeforeUnmount(() => {
 .comments-eyebrow { color: var(--blog-muted); font: 9px var(--blog-mono); letter-spacing: .08em; }
 .comment-form { padding: 22px; border: 1px solid var(--blog-border); border-radius: 9px; background: var(--blog-surface-alt); }
 .comment-identity { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 18px; }
+.comment-identity-summary { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 18px; color: var(--blog-muted); font-size: 12px; }
+.comment-identity-summary p { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.comment-identity-summary strong { color: var(--blog-text); font-weight: 600; }
+.comment-identity-summary button { padding: 4px 0; border: 0; background: transparent; color: var(--blog-accent); font: inherit; cursor: pointer; }
+.comment-identity-summary button:hover:not(:disabled) { text-decoration: underline; text-underline-offset: 3px; }
+.comment-identity-summary button:disabled { cursor: default; opacity: .45; }
 .comment-field { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
 .comment-field label { color: var(--blog-text); font-size: 12px; font-weight: 600; }
 .comment-field label > span { color: var(--blog-accent); }

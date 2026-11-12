@@ -5,13 +5,19 @@ export interface Commenter {
 
 const STORAGE_KEY = 'sudothink_commenter'
 
-export function validateComment(input: Commenter & { content: string }): string | null {
+export function validateCommenter(input: Commenter): string | null {
   const nickname = input.nickname.trim()
   if (!/^[\p{Script=Han}A-Za-z0-9_]+$/u.test(nickname) || Array.from(nickname).length > 32) {
     return '昵称须为 1–32 个中文、英文字母、数字或下划线'
   }
   const email = input.email.trim()
   if (email && (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) return '请填写有效的邮箱地址，或留空'
+  return null
+}
+
+export function validateComment(input: Commenter & { content: string }): string | null {
+  const identityError = validateCommenter(input)
+  if (identityError) return identityError
   const length = Array.from(input.content.trim()).length
   if (length < 1 || length > 1000) return '评论内容须为 1–1000 个字符'
   return null

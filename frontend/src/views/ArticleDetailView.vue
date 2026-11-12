@@ -4,7 +4,6 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, ArrowRight, Clock, Picture, RefreshRight, View } from '@element-plus/icons-vue'
 import { articleApi, type Article } from '@/api/article'
 import ArticleContent from '@/components/ArticleContent.vue'
-import DonationPanel from '@/components/DonationPanel.vue'
 import ArticleComments from '@/components/ArticleComments.vue'
 import { getArticleText } from '@/utils/articleContent'
 
@@ -177,7 +176,6 @@ onBeforeUnmount(() => {
             <div v-else class="cover-fallback"><Picture aria-hidden="true" /><span>封面暂时无法加载</span></div>
           </figure>
           <ArticleContent :content="article.content" />
-          <DonationPanel :key="article.id" />
           <ArticleComments :key="article.id" :article-id="article.id" />
           <footer class="article-end">
             <div v-if="article.tags.length" class="article-tags" aria-label="文章标签">

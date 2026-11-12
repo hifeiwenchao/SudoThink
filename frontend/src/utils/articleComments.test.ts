@@ -73,6 +73,8 @@ test('successful submissions stay pending and remember the edited identity for a
   }
   saveCommenter({ nickname: '原昵称', email: 'old@example.com' })
   const view = await mount(); t.after(view.unmount)
+  assert.equal(view.container.querySelector('[name="nickname"]'), null)
+  view.container.querySelector<HTMLButtonElement>('[data-action="edit-identity"]')!.click(); await settle()
   assert.equal(view.container.querySelector<HTMLInputElement>('[name="nickname"]')?.value, '原昵称')
   input(view.container, 'nickname', ' 新昵称_2 ')
   input(view.container, 'email', ' reader@example.com ')
@@ -82,10 +84,16 @@ test('successful submissions stay pending and remember the edited identity for a
   assert.equal(view.container.querySelector<HTMLTextAreaElement>('textarea')?.value, '')
   assert.ok(view.container.textContent?.includes('等待审核'))
   assert.equal(view.container.querySelectorAll('.comment-item').length, 1)
+  assert.equal(view.container.querySelector('[name="nickname"]'), null)
+  assert.ok(view.container.querySelector('.comment-identity-summary')?.textContent?.includes('新昵称_2'))
   assert.deepEqual(readCommenter(), { nickname: '新昵称_2', email: 'reader@example.com' })
   const another = await mount(); t.after(another.unmount)
-  assert.equal(another.container.querySelector<HTMLInputElement>('[name="nickname"]')?.value, '新昵称_2')
-  assert.equal(another.container.querySelector<HTMLInputElement>('[name="email"]')?.value, 'reader@example.com')
+  assert.equal(another.container.querySelector('[name="nickname"]'), null)
+  assert.equal(another.container.querySelector('[name="email"]'), null)
+  assert.ok(!another.container.textContent?.includes('reader@example.com'))
+  input(another.container, 'content', '再次评论')
+  submit(another.container); await settle()
+  assert.deepEqual(submissions[1], { nickname: '新昵称_2', email: 'reader@example.com', content: '再次评论' })
 })
 
 test('invalid nickname blocks submission and an optional blank email is omitted', async (t) => {
@@ -103,6 +111,46 @@ test('invalid nickname blocks submission and an optional blank email is omitted'
   input(view.container, 'nickname', '读者')
   submit(view.container); await settle()
   assert.deepEqual(submissions, [{ nickname: '读者', content: '正文' }])
+  assert.equal(view.container.querySelector('[name="nickname"]'), null)
+  assert.equal(view.container.querySelector('[name="email"]'), null)
+  assert.ok(view.container.querySelector('.comment-identity-summary')?.textContent?.includes('读者'))
+  const another = await mount(); t.after(another.unmount)
+  assert.equal(another.container.querySelector('[name="nickname"]'), null)
+  assert.ok(another.container.querySelector('.comment-identity-summary')?.textContent?.includes('读者'))
+})
+
+test('canceling identity changes restores saved details without losing the comment draft', async (t) => {
+  saveCommenter({ nickname: '原昵称', email: 'old@example.com' })
+  const submissions: unknown[] = []
+  axios.defaults.adapter = async (config) => {
+    if (config.method === 'post') { submissions.push(JSON.parse(config.data)); return response(config, { id: 8, is_approved: false }) }
+    return response(config, firstPage)
+  }
+  const view = await mount(); t.after(view.unmount)
+  input(view.container, 'content', '保留这段正文')
+  const edit = view.container.querySelector<HTMLButtonElement>('[data-action="edit-identity"]')!
+  assert.equal(edit.getAttribute('aria-expanded'), 'false')
+  edit.click(); await settle()
+  assert.equal(document.activeElement, view.container.querySelector('[name="nickname"]'))
+  input(view.container, 'nickname', '临时昵称')
+  input(view.container, 'email', 'invalid')
+  view.container.querySelector<HTMLButtonElement>('[data-action="cancel-identity"]')!.click(); await settle()
+  assert.equal(view.container.querySelector('[name="nickname"]'), null)
+  assert.equal(document.activeElement, view.container.querySelector('[data-action="edit-identity"]'))
+  assert.equal(view.container.querySelector<HTMLTextAreaElement>('textarea')?.value, '保留这段正文')
+  submit(view.container); await settle()
+  assert.deepEqual(submissions, [{ nickname: '原昵称', email: 'old@example.com', content: '保留这段正文' }])
+})
+
+test('invalid saved identity stays editable instead of blocking submission behind hidden fields', async (t) => {
+  axios.defaults.adapter = async (config) => response(config, firstPage)
+  for (const identity of [{ nickname: 'a-b', email: '' }, { nickname: '读者', email: 'invalid' }]) {
+    saveCommenter(identity)
+    const view = await mount(); t.after(view.unmount)
+    assert.ok(view.container.querySelector('[name="nickname"]'))
+    assert.ok(view.container.querySelector('[name="email"]'))
+    assert.equal(view.container.querySelector('[data-action="edit-identity"]'), null)
+  }
 })
 
 test('failed submission preserves the draft and does not replace the saved identity', async (t) => {
@@ -112,12 +160,50 @@ test('failed submission preserves the draft and does not replace the saved ident
     return response(config, firstPage)
   }
   const view = await mount(); t.after(view.unmount)
+  view.container.querySelector<HTMLButtonElement>('[data-action="edit-identity"]')!.click(); await settle()
   input(view.container, 'nickname', '新昵称')
   input(view.container, 'content', '不要丢失这段文字')
   submit(view.container); await settle()
   assert.equal(view.container.querySelector<HTMLTextAreaElement>('textarea')?.value, '不要丢失这段文字')
   assert.ok(view.container.querySelector('[role="alert"]'))
+  assert.equal(view.container.querySelector<HTMLInputElement>('[name="nickname"]')?.value, '新昵称')
   assert.deepEqual(readCommenter(), { nickname: '原昵称', email: 'old@example.com' })
+})
+
+test('identity controls stay disabled during submission and collapse only after success', async (t) => {
+  saveCommenter({ nickname: '原昵称', email: '' })
+  let complete!: () => void
+  axios.defaults.adapter = async (config) => {
+    if (config.method === 'post') {
+      await new Promise<void>((resolve) => { complete = resolve })
+      return response(config, { id: 8, is_approved: false })
+    }
+    return response(config, firstPage)
+  }
+  const view = await mount(); t.after(view.unmount)
+  view.container.querySelector<HTMLButtonElement>('[data-action="edit-identity"]')!.click(); await settle()
+  input(view.container, 'nickname', '新昵称')
+  input(view.container, 'content', '等待中的评论')
+  submit(view.container); await settle()
+  assert.equal(view.container.querySelector<HTMLButtonElement>('[data-action="cancel-identity"]')?.disabled, true)
+  assert.equal(view.container.querySelector<HTMLInputElement>('[name="nickname"]')?.disabled, true)
+  assert.deepEqual(readCommenter(), { nickname: '原昵称', email: '' })
+  complete(); await settle()
+  assert.equal(view.container.querySelector('[name="nickname"]'), null)
+  assert.equal(view.container.querySelector<HTMLButtonElement>('[data-action="edit-identity"]')?.disabled, false)
+  assert.deepEqual(readCommenter(), { nickname: '新昵称', email: '' })
+})
+
+test('unavailable storage still allows a successful comment and hides identity for this page', async (t) => {
+  t.mock.method(dom.window.Storage.prototype, 'setItem', () => { throw new Error('blocked') })
+  axios.defaults.adapter = async (config) => response(config, config.method === 'post' ? { id: 8, is_approved: false } : firstPage)
+  const view = await mount(); t.after(view.unmount)
+  input(view.container, 'nickname', '读者')
+  input(view.container, 'content', '浏览器不允许存储也能评论')
+  submit(view.container); await settle()
+  assert.ok(view.container.querySelector('.comment-message.success'))
+  assert.equal(view.container.querySelector('[name="nickname"]'), null)
+  assert.ok(view.container.querySelector('.comment-identity-summary')?.textContent?.includes('读者'))
 })
 
 test('a failed list can be retried and pagination displays the requested page', async (t) => {
