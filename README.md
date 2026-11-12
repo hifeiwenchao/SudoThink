@@ -145,11 +145,14 @@ VITE_API_BASE_URL=/api
 
 | 配置位置 | 调整内容 |
 | --- | --- |
-| [nginx/conf.d/sudothink.conf](./nginx/conf.d/sudothink.conf) | 将 HTTP、HTTPS 两个 `server` 中的 `server_name` 都设置为公开站点和管理站点域名，例如 `www.example.com admin.example.com` |
+| [nginx/conf.d/sudothink.conf](./nginx/conf.d/sudothink.conf) | 将公开、管理站点的 HTTP 和 HTTPS `server` 中的 `server_name` 设置为对应域名，例如 `www.example.com admin.example.com` |
+| [nginx/conf.d/sudothink.conf](./nginx/conf.d/sudothink.conf) 中的裸域跳转 | 将独立跳转 `server` 的 `server_name` 设置为裸域，例如 `example.com`，并将 `return 308` 的目标设置为 `https://www.example.com$request_uri` |
 | [frontend/src/site.ts](./frontend/src/site.ts) | 将 `ADMIN_SITE_HOST` 设置为管理站域名，例如 `admin.example.com`，只填写主机名 |
 | `.env` | 设置对应的 `CORS_ORIGINS` 和管理员邮箱 `ADMIN_EMAIL` |
 
 当前管理站主机名在 `frontend/src/site.ts` 中配置，修改后需要重新构建前端。
+
+为裸域、公开站点和管理站点配置指向部署服务器的 DNS 记录，例如 `example.com`、`www.example.com` 和 `admin.example.com`。裸域仅用于跳转到公开站点。
 
 #### 构建、初始化并启动应用
 
@@ -191,9 +194,11 @@ curl --fail http://服务器IP:8100/api/health
 
 #### 接入外部 NGINX
 
-[nginx/conf.d/sudothink.conf](./nginx/conf.d/sudothink.conf) 默认通过 HTTPS 提供两个站点，支持 TLS 1.2、TLS 1.3 和 HTTP/2。HTTP 请求会返回 `308`，保留主机名、路径和查询参数并跳转到 HTTPS。HTTPS 站点使用稳定容器名 `sudothink-backend:8000`、`sudothink-frontend:8100` 作为 upstream；两个站点的 `/api/` 转发给后端，其余页面请求转发给前端。
+[nginx/conf.d/sudothink.conf](./nginx/conf.d/sudothink.conf) 默认通过 HTTPS 提供公开站点和管理站点，支持 TLS 1.2、TLS 1.3 和 HTTP/2。这两个站点的 HTTP 请求会返回 `308`，保留主机名、路径和查询参数并跳转到 HTTPS。HTTPS 站点使用稳定容器名 `sudothink-backend:8000`、`sudothink-frontend:8100` 作为 upstream；两个站点的 `/api/` 转发给后端，其余页面请求转发给前端。
 
-先准备一张同时覆盖公开站点和管理站点域名的有效证书，可使用包含两个域名的 SAN 证书或覆盖两个域名的通配符证书。站点配置使用以下容器内路径：
+裸域使用独立的跳转配置，HTTP 和 HTTPS 请求均返回 `308`，跳转到公开站点的 HTTPS 地址；例如 `https://example.com/articles/1?from=apex` 跳转到 `https://www.example.com/articles/1?from=apex`，保留路径和查询参数。若外部 NGINX 的其他配置已在相同监听地址和端口下声明该裸域，应合并规则或移除重复的 `server_name` 声明，避免跳转规则与已有站点冲突。
+
+先准备一张同时覆盖裸域、公开站点和管理站点域名的有效证书，例如包含 `example.com`、`www.example.com` 和 `admin.example.com` 的 SAN 证书，或同时包含 `example.com` 和 `*.example.com` 的证书。`*.example.com` 本身不覆盖裸域 `example.com`，HTTPS 裸域跳转也需要有效证书才能完成 TLS 握手。站点和裸域跳转共用以下容器内路径：
 
 | 文件 | 容器内路径 |
 | --- | --- |
@@ -242,6 +247,15 @@ curl -I http://admin.example.com/api/health
 ```
 
 应返回 `308`，且 `Location` 分别为 `https://www.example.com/api/health`、`https://admin.example.com/api/health`。
+
+检查裸域在 HTTP 和 HTTPS 下均跳转到公开站点，并保留路径和查询参数：
+
+```bash
+curl -I 'http://example.com/articles/1?from=apex'
+curl -I 'https://example.com/articles/1?from=apex'
+```
+
+两者均应返回 `308`，且 `Location` 为 `https://www.example.com/articles/1?from=apex`。
 
 #### 更新应用和环境变量
 
