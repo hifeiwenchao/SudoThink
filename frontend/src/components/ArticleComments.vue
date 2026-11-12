@@ -24,6 +24,7 @@ const contentLength = computed(() => Array.from(content.value.trim()).length)
 const pageCount = computed(() => Math.max(1, Math.ceil(total.value / 10)))
 let listRequest: AbortController | undefined
 let submitRequest: AbortController | undefined
+let submittedTimeout: ReturnType<typeof setTimeout> | undefined
 let requestVersion = 0
 let disposed = false
 
@@ -65,6 +66,7 @@ async function load(targetPage = page.value) {
 
 async function submit() {
   if (submitting.value) return
+  clearTimeout(submittedTimeout)
   submitted.value = false
   const identity = { nickname: nickname.value.trim(), email: email.value.trim() }
   const text = content.value.trim()
@@ -86,6 +88,7 @@ async function submit() {
     email.value = identity.email
     content.value = ''
     submitted.value = true
+    submittedTimeout = setTimeout(() => { submitted.value = false }, 2000)
   } catch (error: unknown) {
     if (disposed) return
     const failure = error as { response?: { data?: { message?: string } }; message?: string }
@@ -111,6 +114,7 @@ onBeforeUnmount(() => {
   requestVersion++
   listRequest?.abort()
   submitRequest?.abort()
+  clearTimeout(submittedTimeout)
 })
 </script>
 
@@ -154,7 +158,7 @@ onBeforeUnmount(() => {
         <button type="submit" class="comment-submit" :disabled="submitting">{{ submitting ? '正在提交…' : '提交评论' }}</button>
       </div>
       <p v-if="submitError" class="comment-message error" role="alert">{{ submitError }}</p>
-      <p v-if="submitted" class="comment-message success" role="status">评论已提交，等待审核后展示。感谢你的分享。</p>
+      <p v-if="submitted" class="comment-message success" role="status">评论已提交，等待审核后展示。</p>
     </form>
 
     <div class="comment-list" :aria-busy="loading" aria-live="polite">
