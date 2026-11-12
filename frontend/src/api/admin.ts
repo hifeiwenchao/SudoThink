@@ -35,7 +35,11 @@ export interface PendingComment {
   content: string
   created_at: string
   article: { id: number; title: string }
-  author: { id: number; username: string; nickname: string }
+  nickname?: string
+  email?: string
+  ip_address?: string
+  location?: string
+  author: { id: number; username: string; nickname: string } | null
 }
 
 export interface PageResp<T> {

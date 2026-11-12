@@ -5,6 +5,7 @@ import { ArrowLeft, ArrowRight, Clock, Picture, RefreshRight, View } from '@elem
 import { articleApi, type Article } from '@/api/article'
 import ArticleContent from '@/components/ArticleContent.vue'
 import DonationPanel from '@/components/DonationPanel.vue'
+import ArticleComments from '@/components/ArticleComments.vue'
 import { getArticleText } from '@/utils/articleContent'
 
 interface ContentsItem { id: string; text: string; level: number }
@@ -177,6 +178,7 @@ onBeforeUnmount(() => {
           </figure>
           <ArticleContent :content="article.content" />
           <DonationPanel :key="article.id" />
+          <ArticleComments :key="article.id" :article-id="article.id" />
           <footer class="article-end">
             <div v-if="article.tags.length" class="article-tags" aria-label="文章标签">
               <span v-for="tag in article.tags" :key="tag.id" class="article-tag"><span aria-hidden="true">#</span>{{ tag.name }}</span>

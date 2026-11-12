@@ -11,6 +11,8 @@
 - **Aerich** - Tortoise-ORM 的数据库迁移工具
 - **MySQL** 8.0 - 主数据库
 - **Redis** 7 - 缓存 / 会话 / 限流
+- **Celery** - 异步任务与周期调度（worker / beat）
+- **RabbitMQ** - Celery 消息 broker，由外部容器提供
 - **PyJWT** - JWT 鉴权
 - **Pydantic** - 数据校验
 
@@ -34,6 +36,8 @@ SudoThink/
 │   │   ├── core/         # 核心工具 (config/redis/security/response)
 │   │   ├── middlewares/  # 中间件
 │   │   ├── models/       # Tortoise ORM 模型
+│   │   ├── tasks/        # Celery 任务模块
+│   │   ├── celery_app.py # Celery 配置与周期任务表
 │   │   └── schemas/      # Pydantic 数据模型
 │   ├── scripts/          # 数据库和管理员初始化脚本
 │   ├── migrations/       # Aerich 迁移文件
@@ -58,16 +62,18 @@ SudoThink/
 
 项目支持两种运行方式：
 
-1. **Docker 部署**：MySQL、Redis、NGINX 由外部容器提供，当前项目的 Compose 只负责构建和运行 backend、frontend。
-2. **本地运行**：后端直接由 Python 启动，前端由 Vite 启动；MySQL 和 Redis 可以使用本机服务，也可以使用对外发布端口的容器服务。
+1. **Docker 部署**：MySQL、Redis、RabbitMQ、NGINX 由外部容器提供，当前项目的 Compose 构建和运行 backend、frontend、worker、beat。
+2. **本地运行**：后端直接由 Python 启动，前端由 Vite 启动，Celery 在独立终端运行；MySQL、Redis 和 RabbitMQ 可以使用本机服务，也可以使用对外发布端口的容器服务。
 
 ### Docker 部署（外部基础设施容器）
 
-MySQL、Redis、NGINX 由外部容器提供，可以由各自独立的 Compose 管理。应用通过两个共享 Docker 网络连接这些服务。下面使用 `sudothink-data`、`sudothink-proxy` 作为示例网络名：
+MySQL、Redis、RabbitMQ、NGINX 由外部容器提供，可以由各自独立的 Compose 管理。应用通过两个共享 Docker 网络连接这些服务。下面使用 `sudothink-data`、`sudothink-proxy` 作为示例网络名：
 
 | 服务 | Docker 网络 | 用途 |
 | --- | --- | --- |
 | MySQL、Redis | `sudothink-data` | 数据库和缓存 |
+| RabbitMQ | `sudothink-data` | 异步任务消息 broker |
+| worker、beat | `sudothink-data` | 消费任务、投递周期任务 |
 | backend | `sudothink-data`、`sudothink-proxy` | 访问数据库，并接收代理请求 |
 | frontend | `sudothink-proxy` | 提供前端静态资源 |
 | 外部 NGINX | `sudothink-proxy` | 代理两个站点及 API |
@@ -82,7 +88,7 @@ MySQL、Redis、NGINX 由外部容器提供，可以由各自独立的 Compose �
                                       └──> redis:6379
 ```
 
-下文的 `www.example.com`、`admin.example.com` 为示例域名；`mysql-container`、`redis-container`、`nginx-container` 和 `/path/to/...` 为容器名、路径占位值，使用时替换为实际配置。
+下文的 `www.example.com`、`admin.example.com` 为示例域名；`mysql-container`、`redis-container`、`rabbitmq-container`、`nginx-container` 和 `/path/to/...` 为容器名、路径占位值，使用时替换为实际配置。
 
 先启动外部基础服务，再创建共享网络并接入对应容器：
 
@@ -92,12 +98,13 @@ docker network create sudothink-proxy
 
 docker network connect --alias mysql sudothink-data mysql-container
 docker network connect --alias redis sudothink-data redis-container
+docker network connect --alias rabbitmq sudothink-data rabbitmq-container
 docker network connect sudothink-proxy nginx-container
 
 docker network inspect sudothink-data sudothink-proxy --format '{{.Name}}'
 ```
 
-[应用 Compose](./docker-compose.yml) 只管理 backend、frontend。在应用 `.env` 中将 `DEPENDS_MAIN_NETWORK`、`DEPENDS_PROXY_NETWORK` 设置为实际共享网络名；使用上面的示例时，分别填写 `sudothink-data`、`sudothink-proxy`。已有网络和容器连接可复用，跳过相应创建、接入命令，并确认 MySQL、Redis 分别具有 `mysql`、`redis` 网络别名。
+[应用 Compose](./docker-compose.yml) 管理 backend、frontend、worker 和 beat。在应用 `.env` 中将 `DEPENDS_MAIN_NETWORK`、`DEPENDS_PROXY_NETWORK` 设置为实际共享网络名；使用上面的示例时，分别填写 `sudothink-data`、`sudothink-proxy`。已有网络和容器连接可复用，跳过相应创建、接入命令，并确认 MySQL、Redis、RabbitMQ 分别具有 `mysql`、`redis`、`rabbitmq` 网络别名。
 
 前端容器内的 NGINX 监听 `8100`，Compose 默认将宿主机的 `8100` 映射到该端口，支持通过 IP 直接访问公开博客。外部 NGINX 通过 `sudothink-proxy` 网络访问前端容器，并提供宿主机的 `80`、`443` 域名入口。
 
@@ -147,7 +154,7 @@ VITE_API_BASE_URL=/api
 | --- | --- |
 | [nginx/conf.d/sudothink.conf](./nginx/conf.d/sudothink.conf) | 将公开、管理站点的 HTTP 和 HTTPS `server` 中的 `server_name` 设置为对应域名，例如 `www.example.com admin.example.com` |
 | [nginx/conf.d/sudothink.conf](./nginx/conf.d/sudothink.conf) 中的裸域跳转 | 将独立跳转 `server` 的 `server_name` 设置为裸域，例如 `example.com`，并将 `return 308` 的目标设置为 `https://www.example.com$request_uri` |
-| [frontend/src/site.ts](./frontend/src/site.ts) | 将 `ADMIN_SITE_HOST` 设置为管理站域名，例如 `admin.example.com`，只填写主机名 |
+| [frontend/src/site.ts](./frontend/src/site.ts) | 将 `ADMIN_SITE_HOST` 设置为管理站域名，例如 `admin.example.com`，只填写主机名；将 `PUBLIC_SITE_URL` 设置为公开博客首页的完整地址，例如 `https://www.example.com/`，用于后台“返回前台”和顶部“首页”链接 |
 | `.env` | 设置对应的 `CORS_ORIGINS` 和管理员邮箱 `ADMIN_EMAIL` |
 
 当前管理站主机名在 `frontend/src/site.ts` 中配置，修改后需要重新构建前端。
@@ -171,7 +178,7 @@ docker compose build frontend
 # 首次部署：创建数据库、数据表和管理员账号
 docker compose run --rm backend python scripts/init_db.py
 
-docker compose up -d backend frontend
+docker compose up -d backend frontend worker beat
 docker compose ps
 docker compose logs --tail=100 backend
 ```
@@ -263,7 +270,7 @@ curl -I 'https://example.com/articles/1?from=apex'
 
 ```bash
 cd /path/to/SudoThink
-docker compose up -d --force-recreate backend frontend
+docker compose up -d --force-recreate backend frontend worker beat
 ```
 
 应用容器重建后，NGINX 需要重新解析 upstream 的容器 IP：
@@ -274,7 +281,7 @@ docker exec nginx-container nginx -t && docker exec nginx-container nginx -s rel
 
 ### 本地运行（不使用 Docker）
 
-本地运行需要 Python 3.15+、Node.js 22+、pnpm（或 npm）、MySQL 8 和 Redis 7。MySQL 和 Redis 可以是本机服务，也可以是发布了端口的外部容器。
+本地运行需要 Python 3.15+、Node.js 22+、pnpm（或 npm）、MySQL 8、Redis 7；运行异步任务还需 RabbitMQ。MySQL、Redis 和 RabbitMQ 可以是本机服务，也可以是发布了端口的外部容器。
 
 先在项目根目录创建环境变量文件：
 
@@ -336,6 +343,63 @@ pnpm dev                    # 或 npm run dev
 ```
 
 管理后台访问 <http://admin.sudothink.test:8100/>，公开站点访问 <http://sudothink.test:8100/>。这些记录仅用于本机开发；生产构建前，将 `ADMIN_SITE_HOST` 调整为实际管理域名。
+
+## Celery 异步任务与周期调度
+
+项目提供两个独立服务：`worker` 消费并执行任务，`beat` 按调度表向 RabbitMQ 投递周期任务。RabbitMQ 由外部容器提供；两个服务与 backend 复用同一个 `sudothink-backend` 镜像、任务代码和根目录 `.env`，只接入数据网络，不开放 HTTP 端口。
+
+在 `.env` 配置已有 RabbitMQ 的连接信息。Docker 中使用容器网络别名 `rabbitmq`；后端和 Celery 在宿主机直接运行时，改为宿主机可访问的地址及已发布的 AMQP 端口：
+
+```dotenv
+RABBITMQ_HOST=rabbitmq
+RABBITMQ_PORT=5672
+RABBITMQ_USER=sudothink
+RABBITMQ_PASSWORD=replace-with-a-strong-rabbitmq-password
+RABBITMQ_VHOST=/
+CELERY_RESULT_BACKEND=
+CELERY_TIMEZONE=Asia/Shanghai
+CELERY_WORKER_CONCURRENCY=2
+```
+
+使用已创建的非 `guest` 用户，并确认该用户对目标 vhost 拥有 configure、write、read 权限。`RABBITMQ_VHOST=/` 使用默认 vhost，也可以填写已创建并授权的专用 vhost。用户名、密码和 vhost 填原始值，后端会自动编码特殊字符。项目使用 `sudothink` 任务队列和独立的控制交换机，避免混用默认 `celery` 队列。
+
+Docker 部署在构建 backend 镜像后启动服务：
+
+```bash
+docker compose build backend
+docker compose up -d backend worker beat
+docker compose ps
+docker compose logs --tail=100 worker beat
+
+# 向 worker 手动投递诊断任务，在 worker 日志中确认执行成功并返回 pong。
+docker compose exec backend celery -A app.celery_app:celery_app call app.tasks.diagnostics.ping
+docker compose logs --tail=20 worker
+```
+
+更新任务代码或依赖后，重新构建 backend 并重建 backend、worker、beat，确保生产者和消费者运行同一版本。修改 RabbitMQ 凭据或 Celery 环境变量后，也需重建这三个容器。broker 暂不可用时 worker 会重试连接；只有连接成功且日志出现 `ready`，才表示可以消费任务。
+
+直接本地运行时，设置 `RABBITMQ_HOST=127.0.0.1` 及实际端口，并激活后端虚拟环境、安装 `requirements.txt`。在两个独立终端从 `backend` 目录启动：
+
+```bash
+# 终端一
+celery -A app.celery_app:celery_app worker --loglevel=INFO
+
+# 终端二，状态文件放在被 Git 忽略的 data 目录中
+mkdir -p data
+celery -A app.celery_app:celery_app beat --loglevel=INFO --schedule=data/celerybeat-schedule
+```
+
+macOS / Linux 默认使用 prefork 进程池；Windows 本地调试可在 worker 命令添加 `--pool=solo`。同一套调度表只运行一个 beat，避免重复投递。Docker 的 beat 状态文件保存到独立命名卷 `celerybeat-state`，容器重建后保留调度状态。
+
+### 添加任务和周期计划
+
+在 `backend/app/tasks` 下新增任务模块，并在该目录的 `__init__.py` 中导入。任务使用 Celery 的同步入口，例如已有的 `app.tasks.diagnostics.ping`；通过 `ping.delay()` 或 `celery_app.send_task("app.tasks.diagnostics.ping")` 投递。Sanic 请求处理中投递任务会进行同步 broker I/O，应使用 `await asyncio.to_thread(ping.delay)`，避免阻塞事件循环。
+
+周期计划集中在 [backend/app/celery_app.py](./backend/app/celery_app.py) 的 `BEAT_SCHEDULE` 中，默认是空字典，beat 启动后等待配置计划。新增计划时填写已注册的任务名和 `schedule`，例如 `crontab(hour=2, minute=0)` 表示按 `CELERY_TIMEZONE` 每天凌晨两点投递；修改后重建 worker 和 beat。
+
+任务不复用 Sanic 的数据库和 Redis 生命周期。未来任务需要异步 ORM 或缓存时，应在任务进程中自行建立并关闭连接；不要直接把 `async def` 注册为 Celery 任务，也不要跨事件循环复用 ORM 连接。任务应按可能重复执行设计为幂等。
+
+默认不保存任务结果，适合仅需后台执行的任务；`.delay()` 返回任务 ID，但不能直接读取执行结果。如需查询结果，可设置 Celery 支持的 `CELERY_RESULT_BACKEND`，并重建服务。仅接受 JSON 消息，不接受 pickle 等序列化格式。
 
 ## 外观模式
 
@@ -481,7 +545,7 @@ docker compose run --rm --no-deps --interactive=false \
   backend python scripts/publish_static_assets.py /static-dist
 ```
 
-`--interactive=false` 避免临时容器读取标准输入，支持通过 `ssh ... bash -s` 执行整段脚本。发布脚本失败时先修正配置或网络；上传成功后手动刷新 CDN 静态目录，等待刷新完成并检查新资源 URL，再执行 `docker compose up -d --no-build backend frontend`，并按前文检查和重载外部 NGINX。CDN 上的 JS/CSS 必须已更新且可访问后才切换前端，否则页面可能加载到旧资源或因缺少资源而无法打开。
+`--interactive=false` 避免临时容器读取标准输入，支持通过 `ssh ... bash -s` 执行整段脚本。发布脚本失败时先修正配置或网络；上传成功后手动刷新 CDN 静态目录，等待刷新完成并检查新资源 URL，再执行 `docker compose up -d --no-build backend frontend worker beat`，并按前文检查和重载外部 NGINX。CDN 上的 JS/CSS 必须已更新且可访问后才切换前端，否则页面可能加载到旧资源或因缺少资源而无法打开。
 
 已有的 `release-*` 目录不会自动删除。迁移并确认站点使用固定目录后，可自行清理不再引用的旧目录。
 
@@ -518,9 +582,39 @@ npm run build
 
 新安装运行 `init_db.py` 会自动创建打赏设置表；已有安装先执行下文升级脚本。收款码通过后台保存到数据库，无需写入 `.env` 或重新构建前端。
 
+## 访客评论与审核
+
+已发布文章的底部提供评论区，无需注册或登录。昵称必填，为 1–32 个中文、英文字母、数字或下划线；邮箱选填；评论正文为 1–1000 个字符。提交成功后，当前浏览器的 localStorage 只保存昵称和邮箱，下次自动填入，仍可修改；正文不保存在浏览器中。浏览器禁止存储时仍可正常提交。
+
+新评论进入“管理后台 → 评论审核”，通过审核后才在文章下方公开展示。管理员可查看昵称、邮箱、提交 IP 和归属地，并通过或驳回评论。公开接口只返回审核通过的评论及其昵称、归属地、正文和时间，不公开邮箱或原始 IP。评论按每页 10 条展示；草稿文章不接受公开评论。
+
+提交按来源 IP 限制为每 30 秒一条、每 10 分钟最多五条，超限返回 `429`；限流状态保存在 Redis。Redis 暂不可用时评论仍可提交。
+
+### qqwry 离线 IP 归属地
+
+后端使用传统 QQWry IPv4 格式的 `qqwry.dat` 本地查询归属地，无需在线定位接口或 API Key。国内展示城市简称，例如“江苏省南京市”显示为“南京”、“浙江省杭州市”显示为“杭州”，直辖市如“北京市”显示为“北京”；自治州、地区保留名称，境外显示国家，不展示区县、运营商或详细地址。数据库保留完整归属地，已有评论也按相同规则展示，无需改写数据。仅能定位到省时显示省份；IPv6、内网地址、缺失或无法读取的数据库显示“未知”，不阻止评论提交。
+
+仓库提供 [backend/data/qqwry.dat](./backend/data/qqwry.dat)，拉取代码后即可使用。更新时可从[纯真官网](https://www.cz88.net/)或已获授权的数据渠道获取兼容文件，并遵守数据提供方的使用条款。项目不自动下载；`.czdb` 与传统 `.dat` 格式不同，不能直接改名使用。
+
+Docker 部署时，将文件放到 `backend/data/qqwry.dat`，Compose 会将 `backend/data` 只读挂载到后端的 `/app/data`。在 `.env` 中配置：
+
+```dotenv
+QQWRY_DB_PATH=data/qqwry.dat
+# 填写实际的代理容器 IP 或专用代理网络 CIDR，多个以逗号分隔。
+TRUSTED_PROXY_CIDRS=172.30.0.0/24
+```
+
+上面的网段仅为示例。可以用 `docker network inspect 网络名 --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}'` 查看实际代理网络网段；只填写受信任代理所在的网络或固定 IP，不要填写 `0.0.0.0/0` 或 `::/0`。通过本项目的独立外部 NGINX 和前端容器入口访问时，后端必须信任实际转发请求的 NGINX 容器地址，才能记录访客 IP。
+
+直接本地运行也可把文件放到 `backend/data/qqwry.dat`，使用相同的 `QQWRY_DB_PATH=data/qqwry.dat`；相对路径始终以 `backend` 为基准，也可配置绝对路径。没有反向代理时，`TRUSTED_PROXY_CIDRS` 留空，后端直接记录连接来源 IP；如果使用本机 NGINX 或 Vite 代理，需要按实际代理来源配置受信任地址，并确保代理覆盖 `X-Forwarded-For`。
+
+项目的两份 NGINX 配置会用连接来源覆盖 `X-Forwarded-For`。后端仅接受来自受信任代理的转发信息，忽略其他来源提供的 IP 请求头。如果另有 CDN 或负载均衡，需要先在入口 NGINX 中依据提供方的官方网段配置真实 IP，再传递给后端。
+
+修改 `.env` 后重建后端容器；更新离线库后，后续评论会使用更新的数据，已保存的评论归属地保持原记录。首次部署由初始化脚本建表；已有安装先执行下文数据库升级，再启动新版后端。
+
 ## 已有数据库升级
 
-首次部署运行 `init_db.py` 会创建完整结构。已有安装需要在启动新版后端前运行一次升级脚本，为分类补齐权重字段，并创建“关于我”和打赏设置数据表。脚本可以重复执行，会保留已有文章、分类、管理员及站点设置；数据库账号需要 `CREATE` 和 `ALTER` 权限。
+首次部署运行 `init_db.py` 会创建完整结构。已有安装需要在启动新版后端前运行一次升级脚本，为分类补齐权重字段，创建“关于我”和打赏设置数据表，并为评论补齐访客昵称、邮箱、IP、归属地及可空的用户关联。脚本可以重复执行，会保留已有文章、分类、评论、管理员及站点设置；数据库账号需要 `CREATE` 和 `ALTER` 权限。
 
 Docker 部署在项目根目录执行：
 
@@ -528,7 +622,7 @@ Docker 部署在项目根目录执行：
 docker compose build backend
 docker compose build frontend
 docker compose run --rm --no-deps backend python scripts/upgrade_site_content.py
-docker compose up -d backend frontend
+docker compose up -d backend frontend worker beat
 ```
 
 容器重建后，按[更新应用和环境变量](#更新应用和环境变量)中的步骤检查并重载外部 NGINX。
@@ -563,3 +657,6 @@ python backend/scripts/upgrade_site_content.py
 | 更新标签 | PUT | `/api/tags/<id>`（管理员） |
 | 删除标签 | DELETE | `/api/tags/<id>`（管理员） |
 | 评论列表 | GET | `/api/articles/<id>/comments` |
+| 提交访客评论 | POST | `/api/articles/<id>/comments` |
+| 待审核评论 | GET | `/api/admin/comments/pending`（管理员） |
+| 通过 / 驳回评论 | POST | `/api/comments/<id>/approve` / `/api/comments/<id>/reject`（管理员或文章作者） |

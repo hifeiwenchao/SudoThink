@@ -8,28 +8,47 @@ const list = ref<PendingComment[]>([])
 const total = ref(0)
 const page = ref(1)
 const loading = ref(false)
+const actingId = ref<number | null>(null)
 
 async function load() {
   loading.value = true
   try {
     const data = await adminApi.pendingComments(page.value)
-    list.value = data.items
     total.value = data.total
+    const lastPage = Math.max(1, Math.ceil(data.total / 10))
+    if (page.value > lastPage) {
+      page.value = lastPage
+      await load()
+      return
+    }
+    list.value = data.items
   } finally {
     loading.value = false
   }
 }
 
 async function handleApprove(cid: number) {
-  await http.post(`/comments/${cid}/approve`)
-  ElMessage.success('已通过')
-  load()
+  if (actingId.value !== null) return
+  actingId.value = cid
+  try {
+    await http.post(`/comments/${cid}/approve`)
+    ElMessage.success('已通过')
+    await load()
+  } finally {
+    actingId.value = null
+  }
 }
 
 async function handleReject(cid: number) {
-  await http.post(`/comments/${cid}/reject`)
-  ElMessage.success('已驳回')
-  load()
+  if (actingId.value !== null) return
+  actingId.value = cid
+  try {
+    await http.post(`/comments/${cid}/reject`)
+    ElMessage.success('已驳回')
+    await load()
+  } finally {
+    actingId.value = null
+  }
 }
 
 onMounted(load)
@@ -50,10 +69,19 @@ onMounted(load)
           </RouterLink>
         </template>
       </el-table-column>
-      <el-table-column label="作者" width="120">
+      <el-table-column label="昵称" min-width="120">
         <template #default="{ row }">
-          {{ row.author.nickname || row.author.username }}
+          {{ row.nickname || row.author?.nickname || row.author?.username || '访客' }}
         </template>
+      </el-table-column>
+      <el-table-column label="邮箱（不公开）" min-width="190">
+        <template #default="{ row }">{{ row.email || '未填写' }}</template>
+      </el-table-column>
+      <el-table-column label="IP 地址（不公开）" min-width="160">
+        <template #default="{ row }">{{ row.ip_address || '未知' }}</template>
+      </el-table-column>
+      <el-table-column label="IP 归属地" min-width="150">
+        <template #default="{ row }">{{ row.location || '未知' }}</template>
       </el-table-column>
       <el-table-column label="评论内容" min-width="200">
         <template #default="{ row }">
@@ -67,10 +95,10 @@ onMounted(load)
       </el-table-column>
       <el-table-column label="操作" width="140">
         <template #default="{ row }">
-          <el-button size="small" type="success" @click="handleApprove(row.id)">
+          <el-button size="small" type="success" :loading="actingId === row.id" :disabled="actingId !== null" @click="handleApprove(row.id)">
             通过
           </el-button>
-          <el-button size="small" type="danger" @click="handleReject(row.id)">
+          <el-button size="small" type="danger" :loading="actingId === row.id" :disabled="actingId !== null" @click="handleReject(row.id)">
             驳回
           </el-button>
         </template>

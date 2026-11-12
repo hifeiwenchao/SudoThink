@@ -6,6 +6,7 @@ aiomysql==0.3.2
 # cryptography 47+ currently triggers an illegal-instruction crash on Python 3.15 ARM64.
 cryptography==46.0.3
 redis[hiredis]==8.1.0
+celery==5.7.0
 pydantic==2.14.2
 email-validator==2.3.0
 python-dotenv==1.2.4

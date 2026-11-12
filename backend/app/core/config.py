@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 from typing import List
+from urllib.parse import quote
 
 from dotenv import load_dotenv
 
@@ -21,6 +22,11 @@ def _int(value: str | None, default: int) -> int:
         return int(value) if value is not None and value != "" else default
     except ValueError:
         return default
+
+
+def _positive_int(value: str | None, default: int) -> int:
+    parsed = _int(value, default)
+    return parsed if parsed > 0 else default
 
 
 class Settings:
@@ -53,8 +59,22 @@ class Settings:
     REDIS_DB: int = _int(os.getenv("REDIS_DB"), 0)
     REDIS_PASSWORD: str = os.getenv("REDIS_PASSWORD", "")
 
+    # RabbitMQ / Celery (the amqp URL selects the pure-Python py-amqp transport)
+    RABBITMQ_HOST: str = os.getenv("RABBITMQ_HOST", "rabbitmq")
+    RABBITMQ_PORT: int = _int(os.getenv("RABBITMQ_PORT"), 5672)
+    RABBITMQ_USER: str = os.getenv("RABBITMQ_USER", "sudothink")
+    RABBITMQ_PASSWORD: str = os.getenv("RABBITMQ_PASSWORD", "")
+    RABBITMQ_VHOST: str = os.getenv("RABBITMQ_VHOST", "/")
+    CELERY_RESULT_BACKEND: str = os.getenv("CELERY_RESULT_BACKEND", "").strip()
+    CELERY_TIMEZONE: str = os.getenv("CELERY_TIMEZONE", "Asia/Shanghai").strip() or "Asia/Shanghai"
+    CELERY_WORKER_CONCURRENCY: int = _positive_int(os.getenv("CELERY_WORKER_CONCURRENCY"), 2)
+
     # CORS
     CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "*")
+
+    # Comment IP / offline QQWry. Empty trust list ignores all forwarded headers.
+    TRUSTED_PROXY_CIDRS: str = os.getenv("TRUSTED_PROXY_CIDRS", "")
+    QQWRY_DB_PATH: str = os.getenv("QQWRY_DB_PATH", "data/qqwry.dat")
 
     # OSS / CDN (uploads remain disabled until all required values are configured)
     ACCESS_KEY_ID: str = os.getenv("ACCESS_KEY_ID", "")
@@ -81,6 +101,13 @@ class Settings:
         if self.REDIS_PASSWORD:
             return f"redis://:{self.REDIS_PASSWORD}@{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
         return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+
+    @property
+    def CELERY_BROKER_URL(self) -> str:
+        user = quote(self.RABBITMQ_USER, safe="")
+        password = quote(self.RABBITMQ_PASSWORD, safe="")
+        vhost = quote(self.RABBITMQ_VHOST, safe="")
+        return f"amqp://{user}:{password}@{self.RABBITMQ_HOST}:{self.RABBITMQ_PORT}/{vhost}"
 
     @property
     def MYSQL_DSN(self) -> str:

@@ -1,4 +1,4 @@
-"""Upgrade existing MySQL databases for category weights, About and donation settings.
+"""Upgrade MySQL category, About, donation settings and anonymous comment schemas.
 
 Run after deploying the new backend code and before starting application workers::
 
@@ -10,7 +10,9 @@ For Docker deployments::
     docker compose run --rm backend python scripts/upgrade_site_content.py
 
 This command uses the project .env, preserves existing records, and may be run
-repeatedly. The configured MYSQL_USER needs CREATE and ALTER privileges. It does
+repeatedly. It preserves legacy comments and their user links while adding guest
+metadata and allowing nullable authors. The configured MYSQL_USER needs CREATE
+and ALTER privileges. It does
 not create a database or modify administrator accounts; first deployments should
 continue using scripts/init_db.py instead.
 """
@@ -37,7 +39,7 @@ async def upgrade() -> None:
         await upgrade_site_content_schema()
     finally:
         await Tortoise.close_connections()
-    print("分类权重、关于我页面与打赏设置结构升级完成，现有数据已保留")
+    print("分类权重、关于我、打赏设置与访客评论结构升级完成，现有数据已保留")
 
 
 if __name__ == "__main__":

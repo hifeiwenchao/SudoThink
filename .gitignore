@@ -48,5 +48,13 @@ logs/
 
 # ===== Docker =====
 data/
+backend/data/
+*.dat
+!backend/data/
+backend/data/*
+!backend/data/qqwry.dat
 mysql_data/
 redis_data/
+
+# ===== Celery =====
+celerybeat-schedule*

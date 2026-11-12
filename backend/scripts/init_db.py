@@ -6,10 +6,10 @@ repository root or the backend directory::
     python backend/scripts/init_db.py
     cd backend && python scripts/init_db.py
 
-Fresh databases include category weights, the About page and donation settings
-tables. Existing databases should run scripts/upgrade_site_content.py to create
-new tables and add the weight column; safe schema generation does not alter
-existing tables.
+Fresh databases include category weights, the About page, donation settings and
+anonymous comment fields. Existing databases should run
+scripts/upgrade_site_content.py to add missing columns and permit guest authors;
+safe schema generation does not alter existing tables.
 """
 from __future__ import annotations
 

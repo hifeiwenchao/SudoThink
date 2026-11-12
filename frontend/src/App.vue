@@ -3,7 +3,7 @@ import { RouterView, RouterLink, useRoute } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { storeToRefs } from 'pinia'
 import { computed, onMounted } from 'vue'
-import { isAdminSite } from '@/site'
+import { isAdminSite, PUBLIC_SITE_URL } from '@/site'
 import { useTaxonomyStore } from '@/stores/taxonomy'
 import ThemeSwitcher from '@/components/ThemeSwitcher.vue'
 import DonationPanel from '@/components/DonationPanel.vue'
@@ -94,7 +94,7 @@ const onLogout = () => {
         <RouterLink to="/">SudoThink</RouterLink>
       </div>
       <div class="nav">
-        <RouterLink to="/">首页</RouterLink>
+        <a :href="PUBLIC_SITE_URL">首页</a>
         <RouterLink v-if="adminSite && isLoggedIn" to="/articles/new">写文章</RouterLink>
         <RouterLink v-if="adminSite && isAdmin" to="/admin">管理后台</RouterLink>
         <RouterLink v-if="adminSite && !isLoggedIn" to="/login">登录</RouterLink>
