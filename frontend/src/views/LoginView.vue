@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
+import { getLoginRedirect } from '@/utils/loginRedirect'
 
 const userStore = useUserStore()
 const route = useRoute()
-const router = useRouter()
 const loading = ref(false)
 
 const form = reactive({
@@ -23,8 +23,9 @@ async function submit() {
   try {
     await userStore.login(form.username, form.password)
     ElMessage.success('登录成功')
-    const redirect = (route.query.redirect as string) || '/'
-    router.replace(redirect)
+    // A fresh document prevents cached login code from sharing an old module
+    // runtime with backend pages overwritten during a static asset release.
+    window.location.replace(getLoginRedirect(route.query.redirect))
   } finally {
     loading.value = false
   }

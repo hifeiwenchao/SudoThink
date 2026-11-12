@@ -1,12 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { useUserStore } from '@/stores/user'
+import { Back, ChatLineRound, DataAnalysis, Document, Folder, Present, PriceTag, User, UserFilled } from '@element-plus/icons-vue'
 
-const userStore = useUserStore()
 const route = useRoute()
-
-const isAdmin = computed(() => userStore.user?.is_admin === true)
 </script>
 
 <template>
@@ -16,35 +12,39 @@ const isAdmin = computed(() => userStore.user?.is_admin === true)
         <h3 class="logo">管理后台</h3>
         <el-menu :default-active="route.path" router>
           <el-menu-item index="/admin">
-            <el-icon><i class="el-icon-data-analysis" /></el-icon>
+            <el-icon aria-hidden="true"><DataAnalysis /></el-icon>
             <span>概览</span>
           </el-menu-item>
           <el-menu-item index="/admin/users">
-            <el-icon><i class="el-icon-user" /></el-icon>
+            <el-icon aria-hidden="true"><User /></el-icon>
             <span>用户管理</span>
           </el-menu-item>
           <el-menu-item index="/admin/articles">
-            <el-icon><i class="el-icon-document" /></el-icon>
+            <el-icon aria-hidden="true"><Document /></el-icon>
             <span>文章管理</span>
           </el-menu-item>
           <el-menu-item index="/admin/categories">
+            <el-icon aria-hidden="true"><Folder /></el-icon>
             <span>分类管理</span>
           </el-menu-item>
           <el-menu-item index="/admin/tags">
+            <el-icon aria-hidden="true"><PriceTag /></el-icon>
             <span>标签管理</span>
           </el-menu-item>
           <el-menu-item index="/admin/about">
+            <el-icon aria-hidden="true"><UserFilled /></el-icon>
             <span>关于我</span>
           </el-menu-item>
           <el-menu-item index="/admin/donations">
+            <el-icon aria-hidden="true"><Present /></el-icon>
             <span>打赏设置</span>
           </el-menu-item>
           <el-menu-item index="/admin/comments">
-            <el-icon><i class="el-icon-chat-line-round" /></el-icon>
+            <el-icon aria-hidden="true"><ChatLineRound /></el-icon>
             <span>评论审核</span>
           </el-menu-item>
           <el-menu-item index="/">
-            <el-icon><i class="el-icon-back" /></el-icon>
+            <el-icon aria-hidden="true"><Back /></el-icon>
             <span>返回前台</span>
           </el-menu-item>
         </el-menu>

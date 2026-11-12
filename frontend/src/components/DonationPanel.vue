@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { CoffeeCup, RefreshRight } from '@element-plus/icons-vue'
-import { donationsApi } from '@/api/donations'
-import { getDonationChannels, type DonationConfiguration, type DonationChannel } from '@/utils/donations'
+import { useDonationSettings } from '@/composables/useDonationSettings'
+import { getDonationChannels, type DonationChannel } from '@/utils/donations'
 
-const settings = ref<DonationConfiguration | null>(null)
+const props = withDefaults(defineProps<{ placement?: 'inline' | 'floating' }>(), { placement: 'inline' })
+const settings = useDonationSettings()
 const channels = computed(() => getDonationChannels(settings.value))
 const selected = ref<DonationChannel['key']>('wechat')
 const currentChannel = computed(() => channels.value.find(channel => channel.key === selected.value) || channels.value[0])
@@ -12,7 +13,6 @@ const visible = ref(false)
 const imageFailed = ref(false)
 const imageLoading = ref(true)
 const imageVersion = ref(0)
-const controller = new AbortController()
 
 watch(() => currentChannel.value?.url, () => {
   imageFailed.value = false
@@ -25,26 +25,16 @@ function retryImage() {
   imageLoading.value = true
   imageVersion.value++
 }
-
-onMounted(async () => {
-  try {
-    const data = await donationsApi.get(controller.signal)
-    if (!controller.signal.aborted) settings.value = data
-  } catch {
-    // The optional support entry stays hidden if settings cannot be loaded.
-  }
-})
-onBeforeUnmount(() => controller.abort())
 </script>
 
 <template>
-  <section v-if="channels.length" class="donation-panel" aria-label="支持作者">
-    <div class="donation-copy">
+  <section v-if="channels.length" :class="['donation-panel', { 'donation-panel-floating': props.placement === 'floating' }]" aria-label="支持作者">
+    <div v-if="props.placement === 'inline'" class="donation-copy">
       <span class="donation-eyebrow">SUPPORT THIS SPACE</span>
       <h2>如果这些文字对你有帮助</h2>
       <p>可以请我喝杯咖啡，支持下一次探索与分享。</p>
     </div>
-    <button class="donation-button" type="button" @click="visible = true"><CoffeeCup aria-hidden="true" />打赏支持</button>
+    <button class="donation-button" type="button" aria-label="打赏支持作者" aria-haspopup="dialog" :aria-expanded="visible" @click="visible = true"><CoffeeCup aria-hidden="true" /><span>{{ props.placement === 'floating' ? '打赏' : '打赏支持' }}</span></button>
     <el-dialog v-model="visible" title="支持作者" width="min(420px, calc(100vw - 32px))" class="donation-dialog" append-to-body destroy-on-close>
       <div v-if="currentChannel" class="donation-content">
         <p class="donation-intro">感谢你的支持，每一份心意都是继续写作的动力。</p>
@@ -75,6 +65,10 @@ onBeforeUnmount(() => controller.abort())
 .donation-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; flex-shrink: 0; padding: 12px 18px; border: 1px solid var(--blog-accent); border-radius: 7px; color: var(--blog-accent); background: var(--blog-surface); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: background .15s; }
 .donation-button:hover { background: var(--blog-accent-soft); }
 .donation-button svg { width: 17px; height: 17px; }
+.donation-panel-floating { position: fixed; z-index: 45; right: max(24px, env(safe-area-inset-right)); bottom: 24vh; display: block; margin: 0; padding: 0; border: 0; background: transparent; }
+.donation-panel-floating .donation-button { flex-direction: column; gap: 5px; width: 58px; min-height: 66px; padding: 10px 8px; border-color: var(--blog-border); border-radius: 10px; background: var(--blog-surface); box-shadow: 0 4px 18px rgb(0 0 0 / .08); font-size: 12px; }
+.donation-panel-floating .donation-button:hover { border-color: var(--blog-accent); background: var(--blog-accent-soft); }
+.donation-panel-floating .donation-button svg { width: 22px; height: 22px; }
 .donation-button:focus-visible, .donation-methods button:focus-visible { outline: 2px solid var(--el-color-primary); outline-offset: 4px; }
 .donation-content { text-align: center; }
 .donation-intro { margin: 0 0 22px; color: var(--el-text-color-secondary); font-size: 13px; line-height: 1.8; }
@@ -93,5 +87,7 @@ onBeforeUnmount(() => controller.abort())
 @media (max-width: 640px) {
   .donation-panel { align-items: flex-start; flex-direction: column; padding: 22px; gap: 18px; }
   .donation-button { width: 100%; }
+  .donation-panel-floating { right: max(16px, env(safe-area-inset-right)); bottom: calc(88px + env(safe-area-inset-bottom)); padding: 0; }
+  .donation-panel-floating .donation-button { width: 52px; min-height: 60px; padding: 8px 6px; }
 }
 </style>

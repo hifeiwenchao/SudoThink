@@ -6,6 +6,9 @@ import { computed, onMounted } from 'vue'
 import { isAdminSite } from '@/site'
 import { useTaxonomyStore } from '@/stores/taxonomy'
 import ThemeSwitcher from '@/components/ThemeSwitcher.vue'
+import DonationPanel from '@/components/DonationPanel.vue'
+import { donationsApi } from '@/api/donations'
+import { provideDonationSettings } from '@/composables/useDonationSettings'
 import '@/styles/blog.css'
 
 const userStore = useUserStore()
@@ -13,6 +16,7 @@ const { isLoggedIn, user } = storeToRefs(userStore)
 
 const isAdmin = computed(() => user.value?.is_admin === true)
 const adminSite = isAdminSite()
+if (!adminSite) provideDonationSettings(signal => donationsApi.get(signal))
 const route = useRoute()
 const year = new Date().getFullYear()
 const icpNumber = import.meta.env.VITE_ICP_NUMBER?.trim() || ''
@@ -82,6 +86,7 @@ const onLogout = () => {
         </div>
       </div>
     </footer>
+    <DonationPanel placement="floating" />
   </div>
   <el-container v-else class="layout">
     <el-header class="header">
