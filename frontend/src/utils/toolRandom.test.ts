@@ -91,11 +91,11 @@ describe('random string tool', () => {
     assert.throws(() => random.generateRandomStrings(customOnly('甲😀乙', { length: 4, allowRepeatedCharacters: false }), unexpectedEntropy), /不重复.*3|3.*不重复|字符.*不足/)
   })
 
-  it('can consume a 1024-character pool in a single row without requiring lucky random draws', () => {
-    const characters = Array.from({ length: 1024 }, (_, index) => String.fromCodePoint(0x4e00 + index)).join('')
-    const result = random.generateRandomStrings(customOnly(characters, { length: 1024, count: 1, allowRepeatedCharacters: false }), array => { array.fill(0) })
-    assert.equal(Array.from(result.values[0]!).length, 1024)
-    assert.equal(new Set(Array.from(result.values[0]!)).size, 1024)
+  it('can consume a 256-character pool in a single row without requiring lucky random draws', () => {
+    const characters = Array.from({ length: 256 }, (_, index) => String.fromCodePoint(0x4e00 + index)).join('')
+    const result = random.generateRandomStrings(customOnly(characters, { length: 256, count: 1, allowRepeatedCharacters: false }), array => { array.fill(0) })
+    assert.equal(Array.from(result.values[0]!).length, 256)
+    assert.equal(new Set(Array.from(result.values[0]!)).size, 256)
   })
 
   it('rejects whitespace, control characters, invisible formatting and lone surrogates in character rules', () => {
@@ -123,24 +123,27 @@ describe('random string tool', () => {
   })
 
   it('rejects invalid length and count before drawing entropy', () => {
-    for (const length of [0, -1, 1025, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
-      assert.throws(() => random.generateRandomStrings({ ...defaults, length }, unexpectedEntropy), /长度.*1.*1024/)
+    for (const length of [257, 0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      assert.throws(() => random.generateRandomStrings(customOnly('a', { length }), unexpectedEntropy), /长度/)
     }
-    for (const count of [0, -1, 1001, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
-      assert.throws(() => random.generateRandomStrings({ ...defaults, count }, unexpectedEntropy), /数量.*1.*1000/)
+    for (const count of [101, 0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      assert.throws(() => random.generateRandomStrings(customOnly('a', { count }), unexpectedEntropy), /数量/)
     }
   })
 
-  it('includes separators and affixes in the total output limit before drawing entropy', () => {
-    const accepted = random.generateRandomStrings(customOnly('a', { length: 199, count: 1000 }), unexpectedEntropy)
-    assert.equal(accepted.values.join('\n').length, 199999)
-    assert.throws(() => random.generateRandomStrings(customOnly('a', { length: 200, count: 1000 }), unexpectedEntropy), /总.*200000|输出.*过大/)
-    assert.throws(() => random.generateRandomStrings(customOnly('a', { length: 72, count: 1000, prefix: 'p'.repeat(64), suffix: 's'.repeat(64) }), unexpectedEntropy), /总.*200000|输出.*过大/)
+  it('accepts the maximum length and batch count', () => {
+    const result = random.generateRandomStrings(customOnly('a', { length: 256, count: 100 }), unexpectedEntropy)
+    assert.equal(result.values.length, 100)
+    assert.ok(result.values.every(value => value === 'a'.repeat(256)))
   })
 
-  it('budgets astral characters conservatively as two UTF-16 units', () => {
-    assert.equal(random.generateRandomStrings(customOnly('😀', { length: 99, count: 1000 }), unexpectedEntropy).values.join('\n').length, 198999)
-    assert.throws(() => random.generateRandomStrings(customOnly('a😀', { length: 100, count: 1000 }), unexpectedEntropy), /总.*200000|输出.*过大/)
+  it('accepts a full maximum batch with astral characters and fixed affixes', () => {
+    const result = random.generateRandomStrings(customOnly('😀', {
+      length: 256, count: 100, prefix: 'p'.repeat(64), suffix: 's'.repeat(64),
+    }), unexpectedEntropy)
+    assert.equal(result.values.length, 100)
+    assert.equal(result.values[0], 'p'.repeat(64) + '😀'.repeat(256) + 's'.repeat(64))
+    assert.equal(result.values.join('\n').length, 64099)
   })
 
   it('rejects out-of-range entropy instead of introducing modulo bias', () => {

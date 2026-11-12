@@ -20,7 +20,6 @@ const SYMBOLS = '!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~'
 const SIMILAR_CHARACTERS = '0Oo1Il'
 const INVALID_CHARACTER = /[\p{White_Space}\p{Cc}\p{Cf}\p{Cs}\p{Default_Ignorable_Code_Point}]/u
 const INVALID_AFFIX = /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u
-const MAX_OUTPUT_LENGTH = 200000
 
 function validateCharacterInput(value: string, label: string): void {
   if (value.length > 1024) throw new Error(`${label}最多为 1024 个 UTF-16 单位`)
@@ -77,11 +76,11 @@ export function generateRandomStrings(
   options: RandomStringOptions,
   fillRandom = fillSecureRandom,
 ): { values: string[]; rule: string; alphabet: string } {
-  if (!Number.isInteger(options.length) || options.length < 1 || options.length > 1024) {
-    throw new Error('随机部分长度必须是 1 至 1024 的整数')
+  if (!Number.isInteger(options.length) || options.length < 1 || options.length > 256) {
+    throw new Error('随机部分长度必须是 1 至 256 的整数')
   }
-  if (!Number.isInteger(options.count) || options.count < 1 || options.count > 1000) {
-    throw new Error('生成数量必须是 1 至 1000 的整数')
+  if (!Number.isInteger(options.count) || options.count < 1 || options.count > 100) {
+    throw new Error('生成数量必须是 1 至 100 的整数')
   }
   const characters = resolveRandomCharacters(options)
   validateAffix(options.prefix, '前缀')
@@ -89,12 +88,6 @@ export function generateRandomStrings(
   if (!options.allowRepeatedCharacters && options.length > characters.length) {
     throw new Error(`不重复时随机长度不能超过 ${characters.length} 个可用字符`)
   }
-  const maxCharacterWidth = characters.some(character => character.length === 2) ? 2 : 1
-  const outputLength = (options.length * maxCharacterWidth + options.prefix.length + options.suffix.length) * options.count + options.count - 1
-  if (outputLength > MAX_OUTPUT_LENGTH) {
-    throw new Error('输出总长度最多为 200000 个 UTF-16 单位（含前后缀和换行），请减少长度或数量')
-  }
-
   const randomIndex = createRandomIndex(fillRandom)
   const values: string[] = []
   for (let row = 0; row < options.count; row++) {

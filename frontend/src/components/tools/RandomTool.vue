@@ -52,12 +52,12 @@ function generate() {
     <p class="tool-note">按你的字符规则批量生成随机字符串，所有生成操作均在当前浏览器完成。</p>
     <div class="tool-grid">
       <div class="tool-field">
-        <label for="random-length">随机部分长度（1–1024）</label>
-        <input id="random-length" v-model.number="options.length" class="tool-input" type="number" min="1" max="1024" step="1" aria-describedby="random-length-help">
+        <label for="random-length">随机部分长度（1–256）</label>
+        <input id="random-length" v-model.number="options.length" class="tool-input" type="number" min="1" max="256" step="1" aria-describedby="random-length-help">
       </div>
       <div class="tool-field">
-        <label for="random-count">生成数量（1–1000）</label>
-        <input id="random-count" v-model.number="options.count" class="tool-input" type="number" min="1" max="1000" step="1">
+        <label for="random-count">生成数量（1–100）</label>
+        <input id="random-count" v-model.number="options.count" class="tool-input" type="number" min="1" max="100" step="1">
       </div>
     </div>
     <p id="random-length-help" class="tool-note">长度只计算随机部分，前后缀另加。中文和单个表情各计一个字符。</p>
@@ -101,7 +101,7 @@ function generate() {
         <input id="random-suffix" v-model="options.suffix" class="tool-input tool-code" type="text" maxlength="64" autocomplete="off" spellcheck="false" placeholder="例如 _test">
       </div>
     </div>
-    <p class="tool-note">关闭字符重复时，随机部分长度不能超过可用字符数；前后缀不参与此限制，多条结果之间可能相同。每批输出最多 200,000 个字符。</p>
+    <p class="tool-note">关闭字符重复时，随机部分长度不能超过可用字符数；前后缀不参与此限制，多条结果之间可能相同。</p>
     <div class="tool-actions">
       <button class="tool-button primary" type="submit">生成随机字符串</button>
       <CopyButton v-if="result.length" :text="resultText" label="复制全部结果" />
