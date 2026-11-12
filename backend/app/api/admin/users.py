@@ -23,7 +23,7 @@ async def list_users(request: Request):
     page = max(int(request.args.get("page", 1)), 1)
     size = min(max(int(request.args.get("size", 10)), 1), 100)
 
-    total = await User.count()
+    total = await User.all().count()
     users = (
         await User.all()
         .order_by("-created_at")

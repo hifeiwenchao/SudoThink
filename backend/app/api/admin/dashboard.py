@@ -23,9 +23,9 @@ async def dashboard(request: Request):
     user: User = request.ctx.user
     _ensure_admin(user)
 
-    total_users = await User.count()
-    total_articles = await Article.count()
-    total_comments = await Comment.count()
+    total_users = await User.all().count()
+    total_articles = await Article.all().count()
+    total_comments = await Comment.all().count()
     pending_comments = await Comment.filter(is_approved=False).count()
 
     return success({
