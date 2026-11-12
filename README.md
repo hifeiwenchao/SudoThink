@@ -524,7 +524,7 @@ python backend/scripts/publish_static_assets.py frontend/dist --dry-run
 python backend/scripts/publish_static_assets.py frontend/dist
 ```
 
-上传完成后，在阿里云 CDN 控制台手动执行目录刷新，例如刷新 `https://cdn.example.com/static/`，等待刷新完成并确认新构建 `index.html` 引用的 CDN 脚本和样式已更新且可通过 HTTPS 读取，再把同一份 `frontend/dist` 部署到站点。固定 URL 会覆盖线上同名资源，上传及刷新期间已打开的页面可能受影响，建议选择低流量时段发布。
+上传完成后，在后台“运维管理”或阿里云 CDN 控制台执行目录刷新，例如刷新 `https://cdn.example.com/static/`，等待刷新完成并确认新构建 `index.html` 引用的 CDN 脚本和样式已更新且可通过 HTTPS 读取，再把同一份 `frontend/dist` 部署到站点。固定 URL 会覆盖线上同名资源，上传及刷新期间已打开的页面可能受影响，建议选择低流量时段发布。
 
 Docker 部署无需在宿主机安装 Python：从构建好的前端镜像导出资源，通过后端临时容器上传。以下命令在项目根目录依次执行，保持使用同一份 `.env`：
 
@@ -550,6 +550,16 @@ docker compose run --rm --no-deps --interactive=false \
 已有的 `release-*` 目录不会自动删除。迁移并确认站点使用固定目录后，可自行清理不再引用的旧目录。
 
 配置参考：[OSS V4 表单签名](https://help.aliyun.com/zh/oss/developer-reference/signature-version-4-recommend)、[OSS CORS](https://help.aliyun.com/zh/oss/user-guide/configure-cross-origin-resource-sharing)、[CDN 加速 OSS 与私有回源](https://help.aliyun.com/zh/oss/user-guide/use-cdn-to-accelerate-access-to-oss)。
+
+### 后台 CDN 运维
+
+管理员可在“管理后台 → 运维管理”提交文件 URL 刷新、目录刷新、正则刷新及 URL 预热任务，并手动查询近 3 天的任务状态、进度和失败说明。URL 每行一条，允许操作当前阿里云账号有权限管理的 CDN 加速域名；空行和重复地址会在页面合并。操作使用服务端的 `ACCESS_KEY_ID`、`ACCESS_KEY_SECRET`，配置了 `OSS_SECURITY_TOKEN` 时同时使用该临时凭据，浏览器不会获得密钥。凭据需要 `cdn:RefreshObjectCaches`、`cdn:PushObjectCache` 和 `cdn:DescribeRefreshTasks` 权限，只有 OSS 上传权限的账号需要另外授予这些 CDN 操作权限。
+
+每次最多提交 1000 条文件刷新、100 条目录刷新、1 条正则刷新或 100 条预热地址，最多涉及 10 个域名，每条地址不超过 1024 字符；实际每日额度以阿里云账号为准。目录必须以 `/` 结尾且不能带查询参数；预热使用精确文件 URL，不支持以 `/` 结尾的目录。正则刷新遵循阿里云支持的 `[0-9]`、`[a-z]`、`[^/]*`、`.*` 四种模式，例如 `https://cdn.example.com/images/.*`。目录和正则刷新使用阿里云默认的标记过期行为，预热使用域名配置的加速区域。
+
+提交成功表示异步任务已受理，不代表缓存已刷新或预热完成；使用任务编号查询状态。遇到超时或网络中断时，先查询最近任务，确认是否已受理后再决定是否重试，避免重复消耗配额。后台仅调用 CDN 接口，不会上传源站资源或删除 OSS 文件。无需新增数据表或数据库升级。
+
+接口与限制参考：[刷新与预热资源](https://help.aliyun.com/zh/cdn/user-guide/refresh-and-prefetch-resources)、[RefreshObjectCaches](https://help.aliyun.com/zh/cdn/developer-reference/api-cdn-2018-05-10-refreshobjectcaches)、[PushObjectCache](https://help.aliyun.com/zh/cdn/developer-reference/api-cdn-2018-05-10-pushobjectcache)、[DescribeRefreshTasks](https://help.aliyun.com/zh/cdn/developer-reference/api-cdn-2018-05-10-describerefreshtasks)。
 
 前端验证：
 
@@ -664,3 +674,7 @@ python backend/scripts/upgrade_site_content.py
 | 提交访客评论 | POST | `/api/articles/<id>/comments` |
 | 评论管理列表 | GET | `/api/admin/comments`（管理员，支持 `article_id`、`status`、`page`、`size`） |
 | 通过 / 驳回评论 | POST | `/api/comments/<id>/approve` / `/api/comments/<id>/reject`（管理员或文章作者） |
+| CDN 运维配置 | GET | `/api/admin/operations/cdn/config`（管理员） |
+| CDN 缓存刷新 | POST | `/api/admin/operations/cdn/refresh`（管理员，`urls`、`object_type`） |
+| CDN 资源预热 | POST | `/api/admin/operations/cdn/preload`（管理员，`urls`） |
+| CDN 任务查询 | GET | `/api/admin/operations/cdn/tasks`（管理员，`task_id`、`page`、`size`） |

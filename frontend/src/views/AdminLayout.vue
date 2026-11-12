@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useRoute } from 'vue-router'
-import { Back, ChatLineRound, DataAnalysis, Document, Folder, Present, PriceTag, User, UserFilled } from '@element-plus/icons-vue'
+import { Back, ChatLineRound, DataAnalysis, Document, Folder, Present, PriceTag, Setting, User, UserFilled } from '@element-plus/icons-vue'
 import { PUBLIC_SITE_URL } from '@/site'
 
 const route = useRoute()
@@ -43,6 +43,10 @@ const route = useRoute()
           <el-menu-item index="/admin/donations">
             <el-icon aria-hidden="true"><Present /></el-icon>
             <span>打赏设置</span>
+          </el-menu-item>
+          <el-menu-item index="/admin/operations">
+            <el-icon aria-hidden="true"><Setting /></el-icon>
+            <span>运维管理</span>
           </el-menu-item>
         </el-menu>
         <a :href="PUBLIC_SITE_URL" class="return-link">
