@@ -106,6 +106,8 @@ def validate_oss_config(config=settings) -> dict[str, str]:
     for size in (config.OSS_IMAGE_MAX_BYTES, config.OSS_VIDEO_MAX_BYTES):
         if type(size) is not int or size < 1:
             raise ValueError("invalid upload size limit")
+    if type(config.OSS_MEDIA_CACHE_SECONDS) is not int or config.OSS_MEDIA_CACHE_SECONDS < 0:
+        raise ValueError("invalid media cache duration")
     return {
         "upload_url": f"https://{config.OSS_BUCKET}.oss-{config.OSS_REGION}.aliyuncs.com",
         "cdn_base_url": cdn_base_url,
@@ -236,4 +238,8 @@ def create_media_upload_policy(
     key = f"{validated['media_prefix']}/{kind}/{current:%Y/%m}/{uuid4().hex}{extension}"
     return sign_post_policy(
         key=key, size=size, content_type=content_type, config=config, now=current,
+        cache_control=(
+            f"public,max-age={config.OSS_MEDIA_CACHE_SECONDS},immutable"
+            if config.OSS_MEDIA_CACHE_SECONDS else "no-store"
+        ),
     )

@@ -393,6 +393,7 @@ OSS_MEDIA_PREFIX=media
 OSS_STATIC_PREFIX=static
 OSS_IMAGE_MAX_BYTES=10485760
 OSS_VIDEO_MAX_BYTES=209715200
+OSS_MEDIA_CACHE_SECONDS=31536000
 ```
 
 `OSS_REGION` 和公网 `OSS_ENDPOINT` 必须与 Bucket 所在地域一致；上传地址由后端生成，不使用 CDN 域名上传。CDN 地址是阿里云 CDN 中配置的自定义 HTTPS 资源域名，也可带路径前缀；该前缀必须对应 CDN 的回源路径规则。没有配置 OSS/CDN 时，本地上传入口不可用，图片 URL 插入仍可使用。
@@ -420,6 +421,10 @@ OSS_VIDEO_MAX_BYTES=209715200
 在阿里云 CDN 创建 `cdn.example.com` 加速域名，以该 OSS Bucket 为源站，完成 CNAME 解析并配置 HTTPS 证书。推荐保持 Bucket 私有，按阿里云文档开启 CDN 私有 Bucket 回源授权；上传使用签名授权，公开访问使用 CDN。若自行选择公共读 Bucket，确认对象 ACL 和 Bucket 策略允许读取。这里的 CDN URL 用于公开博客，未实现访客 URL 鉴权，不要上传私密资料。
 
 CDN 对公开 JS、字体等跨域资源需要返回 `Access-Control-Allow-Origin: *`，并正确处理 `GET`、`HEAD`、`OPTIONS`；这是公开资源的读取规则，OSS 上传规则仍限定管理站 Origin。开启视频 Range 回源，保留正确的 `Content-Type`，以支持 MP4/WebM 播放和拖动进度。`media/*` 可设置合理缓存时间，上传对象使用随机文件名；删除文章或取消上传不会自动删除 OSS 对象。
+
+`OSS_MEDIA_CACHE_SECONDS` 控制新上传图片、视频的缓存时长，单位为秒，须为非负整数，默认 `31536000`（365 天）。正数会在上传时写入 OSS 对象元数据 `Cache-Control: public,max-age=<秒数>,immutable`，设为 `0` 则写入 `Cache-Control: no-store`。正文、封面和“关于我”的媒体上传共用该配置；前端 JS/CSS 等静态资源仍使用一年缓存。CDN 需遵循源站缓存头；如果路径规则强制指定缓存时长，应同步调整该规则。
+
+修改该参数只影响后续上传，已有对象保留原元数据。已有资源需修改 OSS 的 `Cache-Control` 元数据并刷新 CDN，或重新上传生成新 URL；浏览器已保存长缓存的资源优先通过新 URL 更新。
 
 Docker 修改 `.env` 后重建后端容器，直接运行则重启后端。直传文件不经过应用 NGINX/Sanic，因此不需要为视频提高应用请求体上限。
 

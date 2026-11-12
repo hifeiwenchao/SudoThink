@@ -37,6 +37,7 @@ def configured(**overrides):
         "OSS_STATIC_PREFIX": "static",
         "OSS_IMAGE_MAX_BYTES": 10485760,
         "OSS_VIDEO_MAX_BYTES": 209715200,
+        "OSS_MEDIA_CACHE_SECONDS": 31536000,
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -55,6 +56,30 @@ class CredentialEnvironmentTests(unittest.TestCase):
             capture_output=True, text=True, check=True,
         )
         self.assertTrue(json.loads(result.stdout)["enabled"])
+
+    def test_media_cache_environment_controls_new_uploads(self):
+        for value, expected in (
+            (None, "public,max-age=31536000,immutable"),
+            ("2592000", "public,max-age=2592000,immutable"),
+            ("0", "no-store"),
+        ):
+            with self.subTest(value=value):
+                environment = {key: str(item) for key, item in vars(configured()).items()}
+                environment.pop("OSS_MEDIA_CACHE_SECONDS")
+                environment["PYTHON_DOTENV_DISABLED"] = "1"
+                if value is not None:
+                    environment["OSS_MEDIA_CACHE_SECONDS"] = value
+                result = subprocess.run(
+                    [sys.executable, "-c", (
+                        "import json; from app.core.oss import create_media_upload_policy; "
+                        "form = create_media_upload_policy(filename='image.png', size=100, "
+                        "content_type='image/png'); "
+                        "print(json.dumps(form['fields'].get('Cache-Control')))"
+                    )],
+                    cwd=Path(__file__).resolve().parents[1], env=environment,
+                    capture_output=True, text=True, check=True,
+                )
+                self.assertEqual(json.loads(result.stdout), expected)
 
 
 class InvalidJSONRequest:
@@ -203,6 +228,23 @@ class UploadTests(unittest.IsolatedAsyncioTestCase):
                 policy = json.loads(base64.b64decode(result["fields"]["policy"]))
                 self.assertIn(["content-length-range", limit, limit], policy["conditions"])
 
+    async def test_media_cache_header_is_pinned_for_images_and_videos(self):
+        uploads = self.module("app.api.admin.uploads")
+        for seconds, expected in (
+            (31536000, "public,max-age=31536000,immutable"),
+            (86400, "public,max-age=86400,immutable"),
+            (0, "no-store"),
+        ):
+            with patch.object(uploads, "settings", configured(OSS_MEDIA_CACHE_SECONDS=seconds)):
+                for filename, mime in (("image.png", "image/png"), ("video.mp4", "video/mp4")):
+                    with self.subTest(seconds=seconds, mime=mime):
+                        result = self.data(await uploads.create_upload_policy(self.request(self.admin, {
+                            "filename": filename, "size": 100, "content_type": mime,
+                        })))
+                        self.assertEqual(result["fields"].get("Cache-Control"), expected)
+                        policy = json.loads(base64.b64decode(result["fields"]["policy"]))
+                        self.assertIn(["eq", "$cache-control", expected], policy["conditions"])
+
     async def test_invalid_configuration_disables_signing_without_exposing_secrets(self):
         uploads = self.module("app.api.admin.uploads")
         invalid = (
@@ -223,6 +265,8 @@ class UploadTests(unittest.IsolatedAsyncioTestCase):
             {"OSS_MEDIA_PREFIX": "../media"}, {"OSS_MEDIA_PREFIX": "media/../other"},
             {"OSS_MEDIA_PREFIX": "media//nested"}, {"OSS_MEDIA_PREFIX": "media/%2e%2e"},
             {"OSS_IMAGE_MAX_BYTES": 0}, {"OSS_VIDEO_MAX_BYTES": -1},
+            {"OSS_MEDIA_CACHE_SECONDS": -1}, {"OSS_MEDIA_CACHE_SECONDS": True},
+            {"OSS_MEDIA_CACHE_SECONDS": "3600"}, {"OSS_MEDIA_CACHE_SECONDS": 1.5},
             {"ACCESS_KEY_ID": "id\r\nInjected: header"},
             {"ACCESS_KEY_SECRET": "secret\ninvalid"},
         )
