@@ -15,6 +15,7 @@ const isAdmin = computed(() => user.value?.is_admin === true)
 const adminSite = isAdminSite()
 const route = useRoute()
 const year = new Date().getFullYear()
+const icpNumber = import.meta.env.VITE_ICP_NUMBER?.trim() || ''
 const taxonomyStore = useTaxonomyStore()
 const { categories: navigationCategories } = storeToRefs(taxonomyStore)
 
@@ -73,7 +74,10 @@ const onLogout = () => {
       <div class="blog-footer-inner">
         <div class="blog-footer-note"><span class="blog-footer-prompt" aria-hidden="true">&gt;_</span><span>以文字整理思考，用代码验证想法。</span></div>
         <div class="blog-footer-bottom">
-          <span>© {{ year }} SudoThink <span class="blog-footer-separator">/</span> THINK. BUILD. WRITE.</span>
+          <div class="blog-footer-meta">
+            <span>© {{ year }} SudoThink <span class="blog-footer-separator">/</span> THINK. BUILD. WRITE.</span>
+            <a v-if="icpNumber" class="icp-link" href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">{{ icpNumber }}</a>
+          </div>
           <button type="button" @click="scrollToTop">回到顶部 <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 10 6-6 6 6M12 4v16" /></svg></button>
         </div>
       </div>
@@ -99,7 +103,10 @@ const onLogout = () => {
     <el-main>
       <RouterView />
     </el-main>
-    <el-footer class="footer">© SudoThink Blog</el-footer>
+    <el-footer class="footer">
+      <span>© SudoThink Blog</span>
+      <a v-if="icpNumber" class="icp-link" href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">{{ icpNumber }}</a>
+    </el-footer>
   </el-container>
 </template>
 
@@ -136,10 +143,41 @@ const onLogout = () => {
   color: var(--el-text-color-regular);
 }
 .footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: auto;
+  min-height: 60px;
+  padding: 16px 20px;
   text-align: center;
   color: var(--el-text-color-secondary);
 }
+.blog-footer-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  min-width: 0;
+}
+.icp-link {
+  color: inherit;
+  font-size: 12px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.icp-link:hover {
+  color: var(--el-color-primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.icp-link:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 4px;
+}
 @media (max-width: 640px) {
+  .blog-footer-meta { flex-direction: column; align-items: flex-start; gap: 6px; }
   .header { height: auto; min-height: 60px; padding: 14px 16px; gap: 12px; flex-wrap: wrap; }
   .brand { flex-shrink: 0; }
   .nav { width: 100%; gap: 12px; flex-wrap: wrap; font-size: 13px; }
