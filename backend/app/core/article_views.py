@@ -10,6 +10,7 @@ from app.models.article import Article
 
 logger = logging.getLogger(__name__)
 _PERSIST_TASK = "app.tasks.article_views.persist_article_views"
+_VIEW_CACHE_TTL_SECONDS = 90 * 86400
 
 # Each visit reconciles with its DB snapshot before incrementing. The script is
 # atomic even when concurrent requests all start with an empty/stale cache.
@@ -21,8 +22,9 @@ local current = tonumber(redis.call('GET', key))
 if not current or current < base then
     redis.call('SET', key, ARGV[1])
 end
-redis.call('PERSIST', key)
-return redis.call('INCR', key)
+local total = redis.call('INCR', key)
+redis.call('EXPIRE', key, ARGV[2])
+return total
 """
 
 
@@ -32,6 +34,7 @@ async def record_article_view(article: Article) -> int:
         redis = get_redis()
         total = int(await redis.eval(
             _INCREMENT_VIEWS, 1, f"article:views:{article.id}", article.view_count,
+            _VIEW_CACHE_TTL_SECONDS,
         ))
     except (RedisError, RuntimeError) as exc:
         logger.warning("Article view counter unavailable (%s)", type(exc).__name__)

@@ -48,7 +48,7 @@ class ArticleViewTests(ArticleViewDatabaseCase):
             self.assertEqual(await views.record_article_view(self.article), 18)
         await self.article.refresh_from_db()
         self.assertEqual(self.article.view_count, 17)
-        self.assertEqual(redis.eval.await_args.args[1:], (1, self.key, 17))
+        self.assertEqual(redis.eval.await_args.args[1:], (1, self.key, 17, 7_776_000))
         schedule.assert_awaited_once_with(
             "app.tasks.article_views.persist_article_views", str(self.article.id), 120,
             args=[self.article.id], redis_client=redis,
@@ -134,14 +134,15 @@ class ArticleViewRedisIntegrationTests(ArticleViewDatabaseCase):
             await self.redis.aclose()
         await super().asyncTearDown()
 
-    async def test_concurrent_misses_preserve_all_visits_without_expiring_pending_counts(self):
+    async def test_concurrent_misses_preserve_all_visits_with_ninety_day_expiry(self):
         with patch.object(views, "get_redis", return_value=self.redis), patch.object(
             views, "schedule_task_once", new=AsyncMock(return_value=False)
         ):
             totals = await asyncio.gather(*(views.record_article_view(self.article) for _ in range(80)))
         self.assertEqual(sorted(totals), list(range(18, 98)))
         self.assertEqual(await self.redis.get(self.key), "97")
-        self.assertEqual(await self.redis.ttl(self.key), -1)
+        self.assertGreaterEqual(await self.redis.ttl(self.key), 7_775_999)
+        self.assertLessEqual(await self.redis.ttl(self.key), 7_776_000)
         await self.article.refresh_from_db()
         self.assertEqual(self.article.view_count, 17)
 
@@ -154,7 +155,29 @@ class ArticleViewRedisIntegrationTests(ArticleViewDatabaseCase):
             await self.redis.set(self.key, "35", ex=30)
             self.assertEqual(await views.record_article_view(self.article), 36)
         self.assertEqual(await self.redis.get(self.key), "36")
-        self.assertEqual(await self.redis.ttl(self.key), -1)
+        self.assertGreaterEqual(await self.redis.ttl(self.key), 7_775_999)
+        self.assertLessEqual(await self.redis.ttl(self.key), 7_776_000)
+
+    async def test_each_visit_renews_expiry_including_preexisting_permanent_counters(self):
+        await self.redis.set(self.key, "24")
+        with patch.object(views, "get_redis", return_value=self.redis), patch.object(
+            views, "schedule_task_once", new=AsyncMock(return_value=False)
+        ):
+            self.assertEqual(await views.record_article_view(self.article), 25)
+            self.assertGreaterEqual(await self.redis.ttl(self.key), 7_775_999)
+            await self.redis.expire(self.key, 60)
+            self.assertEqual(await views.record_article_view(self.article), 26)
+        self.assertGreaterEqual(await self.redis.ttl(self.key), 7_775_999)
+        self.assertLessEqual(await self.redis.ttl(self.key), 7_776_000)
+
+    async def test_persistence_keeps_counter_and_does_not_renew_its_expiry(self):
+        await self.redis.set(self.key, "24", ex=60)
+        self.assertTrue((await views.persist_article_views(self.article.id, self.redis))["updated"])
+        await self.article.refresh_from_db()
+        self.assertEqual(self.article.view_count, 24)
+        self.assertEqual(await self.redis.get(self.key), "24")
+        self.assertGreaterEqual(await self.redis.ttl(self.key), 59)
+        self.assertLessEqual(await self.redis.ttl(self.key), 60)
 
     async def test_visit_during_flush_remains_cached_for_later_independent_flush(self):
         await self.redis.set(self.key, "24")
