@@ -232,17 +232,19 @@ onBeforeUnmount(() => {
           <el-button type="primary" native-type="submit" :loading="taskLoading" :disabled="!available || submitting">查询状态</el-button>
         </form>
         <p v-if="taskError" role="alert" class="error-message">{{ taskError }}</p>
-        <el-table :data="taskItems" v-loading="taskLoading" stripe :empty-text="taskQuery ? '暂未查询到此任务，提交后可稍后重试' : '暂无最近任务'">
-          <el-table-column prop="task_id" label="任务编号" min-width="150" />
-          <el-table-column label="操作" width="120"><template #default="{ row }">{{ taskType(row.object_type) }}</template></el-table-column>
-          <el-table-column prop="object_path" label="URL 地址" min-width="280" show-overflow-tooltip />
-          <el-table-column label="状态" width="110"><template #default="{ row }"><el-tag :type="taskTag(row.status)" size="small">{{ taskStatus(row.status) }}</el-tag></template></el-table-column>
-          <el-table-column label="进度" width="90"><template #default="{ row }">{{ row.process || '—' }}</template></el-table-column>
-          <el-table-column label="创建时间" width="185"><template #default="{ row }">{{ taskTime(row.creation_time) }}</template></el-table-column>
-          <el-table-column label="说明" min-width="180" show-overflow-tooltip><template #default="{ row }">{{ row.description || '—' }}</template></el-table-column>
-        </el-table>
-        <el-pagination v-if="taskTotal > taskPageSize" :current-page="taskPage" :page-size="taskPageSize" :total="taskTotal" layout="prev, pager, next" class="pagination" @current-change="changeTaskPage" />
-        <p v-if="taskRequestId" class="field-hint request-id">查询请求编号：<code>{{ taskRequestId }}</code></p>
+        <div class="task-table-wrap">
+          <el-table :data="taskItems" v-loading="taskLoading" stripe :empty-text="taskQuery ? '暂未查询到此任务，提交后可稍后重试' : '暂无最近任务'">
+            <el-table-column prop="task_id" label="任务编号" min-width="150" />
+            <el-table-column label="操作" width="120"><template #default="{ row }">{{ taskType(row.object_type) }}</template></el-table-column>
+            <el-table-column prop="object_path" label="URL 地址" min-width="280" show-overflow-tooltip />
+            <el-table-column label="状态" width="110"><template #default="{ row }"><el-tag :type="taskTag(row.status)" size="small">{{ taskStatus(row.status) }}</el-tag></template></el-table-column>
+            <el-table-column label="进度" width="90"><template #default="{ row }">{{ row.process || '—' }}</template></el-table-column>
+            <el-table-column label="创建时间" width="185"><template #default="{ row }">{{ taskTime(row.creation_time) }}</template></el-table-column>
+            <el-table-column label="说明" min-width="180" show-overflow-tooltip><template #default="{ row }">{{ row.description || '—' }}</template></el-table-column>
+          </el-table>
+          <el-pagination v-if="taskTotal > taskPageSize" :current-page="taskPage" :page-size="taskPageSize" :total="taskTotal" layout="prev, pager, next" class="pagination" @current-change="changeTaskPage" />
+          <p v-if="taskRequestId" class="field-hint request-id">查询请求编号：<code>{{ taskRequestId }}</code></p>
+        </div>
       </section>
     </div>
       </el-tab-pane>
@@ -277,8 +279,10 @@ onBeforeUnmount(() => {
 .section-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 20px; }
 .section-heading h3 { margin: 0; }
 .task-query { display: flex; gap: 12px; margin-bottom: 20px; max-width: 600px; }
+.task-table-wrap { min-width: 0; }
 .pagination { justify-content: center; margin-top: 20px; }
-.request-id { margin-top: 14px; margin-bottom: 0; }
+.request-id { display: flex; align-items: flex-start; gap: 4px; padding-top: 14px; margin: 14px 0 0; border-top: 1px solid var(--el-border-color-lighter); line-height: 1.6; overflow-wrap: anywhere; }
+.request-id code { min-width: 0; }
 @media (max-width: 700px) {
   .operation-panel { padding: 18px 14px; }
   .task-query { gap: 8px; }
