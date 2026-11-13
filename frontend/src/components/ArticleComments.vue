@@ -136,7 +136,7 @@ onBeforeUnmount(() => {
 <template>
   <section class="article-comments" :aria-labelledby="`comments-title-${articleId}`">
     <header class="comments-header">
-      <h2 :id="`comments-title-${articleId}`">评论 <span>{{ total }}</span></h2>
+      <h2 :id="`comments-title-${articleId}`">全部评论 <span>{{ total }}</span></h2>
       <span class="comments-eyebrow">LEAVE A THOUGHT</span>
     </header>
 
@@ -189,15 +189,23 @@ onBeforeUnmount(() => {
       <template v-else>
         <p v-if="!comments.length" class="comments-empty">还没有公开评论，来分享你的想法吧。</p>
         <article v-for="comment in comments" :key="comment.id" class="comment-item">
-          <header class="comment-meta">
-            <span class="comment-nickname">{{ comment.nickname }}</span>
-            <span v-if="comment.reply_to" class="comment-reply-context">回复 <strong>@{{ comment.reply_to.nickname }}</strong></span>
-            <span v-if="comment.location" class="comment-location">{{ comment.location }}</span>
-            <time :datetime="comment.created_at">{{ dateLabel(comment.created_at) }}</time>
-          </header>
-          <p class="comment-content">{{ comment.content }}</p>
-          <div class="comment-item-actions">
-            <button type="button" data-action="reply" :aria-label="`回复 ${comment.nickname}`" :disabled="submitting" @click="replyTo(comment)">回复</button>
+          <span class="comment-avatar" aria-hidden="true">{{ comment.nickname.slice(0, 1).toUpperCase() }}</span>
+          <div class="comment-main">
+            <header class="comment-meta">
+              <span class="comment-nickname">{{ comment.nickname }}</span>
+              <span v-if="comment.location" class="comment-location">{{ comment.location }}</span>
+            </header>
+            <p class="comment-content">{{ comment.content }}</p>
+            <div v-if="comment.reply_to" class="comment-reply-context">
+              <span>回复 <strong>@{{ comment.reply_to.nickname }}</strong></span>
+            </div>
+            <footer class="comment-footer">
+              <time :datetime="comment.created_at">{{ dateLabel(comment.created_at) }}</time>
+              <span aria-hidden="true">·</span>
+              <div class="comment-item-actions">
+                <button type="button" data-action="reply" :aria-label="`回复 ${comment.nickname}`" :disabled="submitting" @click="replyTo(comment)">回复</button>
+              </div>
+            </footer>
           </div>
         </article>
         <nav v-if="pageCount > 1" class="comment-pagination" aria-label="评论分页">
@@ -213,7 +221,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .article-comments { margin-top: 48px; padding-top: 30px; border-top: 1px solid var(--blog-border); color: var(--blog-text); }
 .comments-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
-.comments-header h2 { display: flex; align-items: baseline; gap: 10px; margin: 0; font-size: 21px; line-height: 1.5; }
+.comments-header h2 { display: flex; align-items: baseline; gap: 10px; margin: 0; padding-left: 12px; border-left: 3px solid var(--blog-accent); font-size: 21px; line-height: 1.5; }
 .comments-header h2 span { color: var(--blog-accent); font: 13px var(--blog-mono); }
 .comments-eyebrow { color: var(--blog-muted); font: 9px var(--blog-mono); letter-spacing: .08em; }
 .comment-form { padding: 22px; border: 1px solid var(--blog-border); border-radius: 9px; background: var(--blog-surface-alt); }
@@ -231,7 +239,7 @@ onBeforeUnmount(() => {
 .comment-reply-target button:hover:not(:disabled), .comment-item-actions button:hover:not(:disabled) { text-decoration: underline; text-underline-offset: 3px; }
 .comment-reply-target button:disabled, .comment-item-actions button:disabled { cursor: default; opacity: .45; }
 .comment-reply-context { overflow-wrap: anywhere; }
-.comment-item-actions { display: flex; justify-content: flex-end; margin-top: 10px; }
+.comment-item-actions { display: flex; justify-content: flex-start; }
 .comment-field { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
 .comment-field label { color: var(--blog-text); font-size: 12px; font-weight: 600; }
 .comment-field label > span { color: var(--blog-accent); }
@@ -254,11 +262,17 @@ onBeforeUnmount(() => {
 .comment-message.success { color: var(--blog-accent); }
 .comment-list { margin-top: 22px; }
 .comments-empty { margin: 0; padding: 30px 0; color: var(--blog-muted); text-align: center; font-size: 13px; line-height: 1.8; }
-.comment-item { padding: 24px 0; border-bottom: 1px solid var(--blog-border); }
-.comment-meta { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 14px; color: var(--blog-muted); font-size: 11px; }
+.comment-item { display: grid; grid-template-columns: 38px minmax(0, 1fr); gap: 12px; padding: 20px 0; border-bottom: 1px solid var(--blog-border); }
+.comment-avatar { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: 1px solid var(--blog-border); border-radius: 50%; background: var(--blog-surface-alt); color: var(--blog-accent); font: 12px var(--blog-mono); }
+.comment-main { min-width: 0; }
+.comment-meta { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 10px; color: var(--blog-muted); font-size: 11px; }
 .comment-nickname { color: var(--blog-text); font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
-.comment-meta time { margin-left: auto; font: 10px var(--blog-mono); }
-.comment-content { margin: 12px 0 0; color: var(--blog-text); font-size: 14px; line-height: 1.9; white-space: pre-wrap; overflow-wrap: anywhere; }
+.comment-location { color: var(--blog-muted); }
+.comment-content { margin: 8px 0 0; color: var(--blog-text); font-size: 14px; line-height: 1.9; white-space: pre-wrap; overflow-wrap: anywhere; }
+.comment-reply-context { margin-top: 10px; padding: 7px 10px; border-radius: 4px; background: var(--blog-surface-alt); color: var(--blog-muted); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.comment-reply-context strong { color: var(--blog-text); font-weight: 500; }
+.comment-footer { display: flex; align-items: center; gap: 8px; margin-top: 9px; color: var(--blog-muted); font-size: 11px; }
+.comment-footer time { font: 10px var(--blog-mono); }
 .comment-load-error { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 14px; padding: 28px 0; color: var(--blog-muted); font-size: 13px; }
 .comment-pagination { display: flex; align-items: center; justify-content: center; gap: 18px; margin-top: 24px; }
 .comment-pagination > span { color: var(--blog-muted); font: 11px var(--blog-mono); }
@@ -267,6 +281,13 @@ onBeforeUnmount(() => {
   .comment-form { padding: 18px; }
   .comment-identity { grid-template-columns: 1fr; gap: 16px; }
   .comments-eyebrow { font-size: 8px; }
-  .comment-meta time { flex-basis: 100%; margin-left: 0; }
+  .comments-header { align-items: flex-start; }
+  .comments-header h2 { font-size: 19px; }
+  .comment-item { grid-template-columns: 30px minmax(0, 1fr); gap: 10px; padding: 17px 0; }
+  .comment-avatar { width: 30px; height: 30px; font-size: 10px; }
+  .comment-content { margin-top: 7px; font-size: 13px; line-height: 1.8; }
+  .comment-reply-context { margin-top: 8px; padding: 7px 9px; font-size: 11px; }
+  .comment-footer { gap: 7px; margin-top: 8px; font-size: 10px; }
+  .comment-footer time { font-size: 9px; }
 }
 </style>
