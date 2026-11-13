@@ -5,10 +5,14 @@ import os
 import subprocess
 import sys
 import unittest
+from unittest.mock import patch
+from uuid import uuid4
 
 os.environ["PYTHON_DOTENV_DISABLED"] = "1"
 
 from kombu import Connection
+from kombu.message import Message
+from celery.worker.request import Request as WorkerRequest
 from app.core.config import Settings
 
 
@@ -57,9 +61,39 @@ class CeleryTests(unittest.TestCase):
         self.assertTrue(app.conf.broker_connection_retry_on_startup)
         self.assertEqual(app.conf.worker_prefetch_multiplier, 1)
 
-    def test_default_schedule_has_no_business_tasks(self):
+    def test_article_views_use_delayed_once_jobs_without_a_global_beat_scan(self):
         app = self.celery_app()
         self.assertEqual(app.conf.beat_schedule, {})
+
+    def test_delayed_wrapper_is_discovered_with_worker_loss_protection(self):
+        app = self.celery_app()
+        app.loader.import_default_modules()
+        task = app.tasks["app.tasks.delayed.execute_once"]
+        self.assertTrue(task.acks_late)
+        self.assertFalse(task.acks_on_timeout)
+        self.assertTrue(task.reject_on_worker_lost)
+        self.assertEqual(task.max_retries, 5)
+
+    def test_delayed_wrapper_hard_timeout_requeues_instead_of_acknowledging_job(self):
+        app = self.celery_app()
+        app.loader.import_default_modules()
+        task = app.tasks["app.tasks.delayed.execute_once"]
+        acked, rejected = [], []
+        message = Message(
+            body=([], {}, {}), headers={"id": uuid4().hex, "task": task.name},
+            delivery_info={"exchange": "sudothink", "routing_key": "sudothink"},
+        )
+        request = WorkerRequest(
+            message, app=app, task=task, decoded=True,
+            on_ack=lambda *args: acked.append(args),
+            on_reject=lambda *args: rejected.append(args),
+        )
+        # Only replace the backend write; execute Celery's real timeout/ACK path.
+        with patch.object(task.backend, "mark_as_failure"), patch("celery.worker.request.error"):
+            request.on_timeout(soft=False, timeout=300)
+        self.assertEqual(acked, [])
+        self.assertEqual(len(rejected), 1)
+        self.assertIs(rejected[0][-1], True)
 
     def test_task_and_control_routing_are_isolated_on_a_shared_vhost(self):
         app = self.celery_app()
@@ -84,6 +118,8 @@ from app.celery_app import celery_app
 celery_app.loader.import_default_modules()
 assert not {'app.server', 'app.core.redis', 'app.models', 'sanic', 'tortoise'} & sys.modules.keys()
 assert celery_app.tasks['app.tasks.diagnostics.ping'].apply().get() == 'pong'
+assert 'app.tasks.delayed.execute_once' in celery_app.tasks
+assert 'app.tasks.article_views.persist_article_views' in celery_app.tasks
 """
         result = subprocess.run(
             [sys.executable, "-c", code], capture_output=True, text=True, check=False

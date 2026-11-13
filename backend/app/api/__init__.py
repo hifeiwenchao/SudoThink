@@ -10,6 +10,7 @@ from app.api.comment import bp as comment_bp
 from app.api.donations import bp as donations_bp
 from app.api.health import bp as health_bp
 from app.api.tag import bp as tag_bp
+from app.api.wechat import bp as wechat_bp
 
 
 def register_blueprints(app: Sanic) -> None:
@@ -22,6 +23,7 @@ def register_blueprints(app: Sanic) -> None:
         category_bp,
         tag_bp,
         comment_bp,
+        wechat_bp,
         admin_bp,
         url_prefix="/api",
     )

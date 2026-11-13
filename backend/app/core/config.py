@@ -72,6 +72,10 @@ class Settings:
     # CORS
     CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "*")
 
+    # WeChat web sharing (used only by the backend signature endpoint)
+    WECHAT_APP_ID: str = os.getenv("WECHAT_APP_ID", "").strip()
+    WECHAT_APP_SECRET: str = os.getenv("WECHAT_APP_SECRET", "").strip()
+
     # Comment IP / offline QQWry. Empty trust list ignores all forwarded headers.
     TRUSTED_PROXY_CIDRS: str = os.getenv("TRUSTED_PROXY_CIDRS", "")
     QQWRY_DB_PATH: str = os.getenv("QQWRY_DB_PATH", "data/qqwry.dat")

@@ -78,8 +78,8 @@ async def _upgrade_guest_comments(connection) -> None:
 async def upgrade_site_content_schema() -> None:
     """Create missing tables and upgrade legacy columns without replacing data.
 
-    ``generate_schemas(safe=True)`` creates the AboutPage and DonationSettings
-    tables, but does not alter an existing categories table. Check MySQL metadata
+    ``generate_schemas(safe=True)`` creates the AboutPage, DonationSettings and
+    ApiRequestLog tables, but does not alter an existing categories table. Check MySQL metadata
     before adding category weights, guest comment metadata, and rejection flags.
     Existing approvals remain intact; unapproved comments start as pending.
     Historical comments receive an empty User-Agent; only new submissions record it.

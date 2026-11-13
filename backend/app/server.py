@@ -9,6 +9,7 @@ from app.api import register_blueprints
 from app.core.config import TORTOISE_ORM, settings
 from app.core.exceptions import register_exception_handlers
 from app.core.redis import close_redis, init_redis
+from app.middlewares.request_log import register_request_logging
 
 
 def create_app() -> Sanic:
@@ -27,6 +28,8 @@ def create_app() -> Sanic:
 
     # 注册全局异常处理
     register_exception_handlers(app)
+
+    register_request_logging(app)
 
     # 注册 Tortoise ORM
     register_tortoise(

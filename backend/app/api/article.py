@@ -6,6 +6,7 @@ from sanic import Blueprint, Request
 from slugify import slugify
 from tortoise.transactions import in_transaction
 
+from app.core.article_views import record_article_view
 from app.core.exceptions import ForbiddenError, NotFoundError, ValidationError
 from app.core.response import success
 from app.middlewares.auth import login_required
@@ -93,9 +94,10 @@ async def get_article(request: Request, aid: int):
     article = await Article.get_or_none(id=aid, is_published=True)
     if article is None:
         raise NotFoundError("article not found")
-    article.view_count += 1
-    await article.save(update_fields=["view_count"])
-    return success(await _serialize(article))
+    data = await _serialize(article)
+    if getattr(request, "method", "GET") == "GET":
+        data["view_count"] = await record_article_view(article)
+    return success(data)
 
 
 @bp.post("")
@@ -150,6 +152,7 @@ async def update_article(request: Request, aid: int):
 
     data = payload.model_dump(exclude_unset=True)
     tag_ids = data.pop("tag_ids", None)
+    update_fields = ["updated_at"]
     async with in_transaction():
         tags = await _selected_tags(tag_ids) if tag_ids is not None else None
         if "category_id" in data:
@@ -157,6 +160,7 @@ async def update_article(request: Request, aid: int):
             if category_id is not None and not await Category.exists(id=category_id):
                 raise ValidationError("category not found")
             article.category_id = category_id
+            update_fields.append("category_id")
 
         publish_changed_to_true = (
             "is_published" in data
@@ -166,11 +170,13 @@ async def update_article(request: Request, aid: int):
 
         for k, v in data.items():
             setattr(article, k, v)
+            update_fields.append(k)
 
         if publish_changed_to_true and article.published_at is None:
             article.published_at = datetime.now(timezone.utc)
+            update_fields.append("published_at")
 
-        await article.save()
+        await article.save(update_fields=update_fields)
 
         if tags is not None:
             await article.tags.clear()

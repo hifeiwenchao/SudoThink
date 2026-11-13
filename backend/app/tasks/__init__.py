@@ -1,2 +1,2 @@
 """Explicitly import task modules so Celery workers can discover them."""
-from app.tasks import diagnostics  # noqa: F401
+from app.tasks import article_views, delayed, diagnostics  # noqa: F401

@@ -4,7 +4,8 @@ from celery import Celery
 from app.core.config import settings
 
 
-# Add future periodic tasks here. Keep only one beat process for this schedule.
+# Delayed once jobs are published by their first trigger; beat remains available
+# for independent periodic jobs without scanning all article counters.
 BEAT_SCHEDULE: dict = {}
 
 celery_app = Celery("sudothink")

@@ -2,7 +2,9 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { operationsApi, type CdnConfiguration, type CdnOperation, type CdnSubmission, type CdnTask } from '@/api/operations'
 import { cdnOperationLimit, parseCdnUrls, validateCdnUrls } from '@/utils/cdnOperations'
+import ApiRequestLogs from '@/components/operations/ApiRequestLogs.vue'
 
+const activeTab = ref('cdn')
 const config = ref<CdnConfiguration | null>(null)
 const configLoading = ref(false)
 const configError = ref('')
@@ -176,9 +178,11 @@ onBeforeUnmount(() => {
   <div class="operations-page">
     <header class="page-heading">
       <h2>运维管理</h2>
-      <p>阿里云 CDN 缓存刷新与预热</p>
+      <p>API 请求记录与阿里云 CDN 缓存刷新、预热</p>
     </header>
 
+    <el-tabs v-model="activeTab" class="operations-tabs">
+      <el-tab-pane label="CDN 运维" name="cdn">
     <el-result v-if="configError" icon="error" title="配置加载失败" :sub-title="configError">
       <template #extra><el-button type="primary" :loading="configLoading" @click="loadConfig">重新加载</el-button></template>
     </el-result>
@@ -241,6 +245,11 @@ onBeforeUnmount(() => {
         <p v-if="taskRequestId" class="field-hint request-id">查询请求编号：<code>{{ taskRequestId }}</code></p>
       </section>
     </div>
+      </el-tab-pane>
+      <el-tab-pane label="API 请求记录" name="requests" lazy>
+        <ApiRequestLogs />
+      </el-tab-pane>
+    </el-tabs>
   </div>
 </template>
 
@@ -250,6 +259,7 @@ onBeforeUnmount(() => {
 .page-heading h2 { margin: 0 0 8px; }
 .page-heading p, .field-hint, .input-notes { color: var(--el-text-color-secondary); font-size: 13px; }
 .page-heading p { margin: 0; }
+.operations-tabs { --el-tabs-header-height: 46px; }
 .operation-panel { padding: 24px; margin-bottom: 24px; border: 1px solid var(--el-border-color-light); border-radius: 8px; background: var(--app-surface); }
 .operation-panel h3 { margin: 0 0 20px; font-size: 17px; }
 .operation-panel > .field-hint { margin: -8px 0 20px; }

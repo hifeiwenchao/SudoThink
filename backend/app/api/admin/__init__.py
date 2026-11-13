@@ -9,6 +9,7 @@ from app.api.admin.about import bp as about_bp
 from app.api.admin.donations import bp as donations_bp
 from app.api.admin.uploads import bp as uploads_bp
 from app.api.admin.operations import bp as operations_bp
+from app.api.admin.request_logs import bp as request_logs_bp
 
 
 bp = Blueprint.group(
@@ -20,6 +21,7 @@ bp = Blueprint.group(
     donations_bp,
     uploads_bp,
     operations_bp,
+    request_logs_bp,
     url_prefix="/admin",
 )
 

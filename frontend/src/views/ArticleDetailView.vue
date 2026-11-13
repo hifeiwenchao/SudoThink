@@ -5,6 +5,7 @@ import { ArrowLeft, ArrowRight, Clock, Picture, RefreshRight, View } from '@elem
 import { articleApi, type Article } from '@/api/article'
 import ArticleContent from '@/components/ArticleContent.vue'
 import ArticleComments from '@/components/ArticleComments.vue'
+import WechatShare from '@/components/WechatShare.vue'
 import { getArticleText } from '@/utils/articleContent'
 
 interface ContentsItem { id: string; text: string; level: number }
@@ -146,6 +147,7 @@ onBeforeUnmount(() => {
           <span class="author-meta"><span class="author-initial" aria-hidden="true">{{ authorName.slice(0, 1).toUpperCase() }}</span>{{ authorName }}</span>
           <span><Clock aria-hidden="true" />约 {{ readingMinutes }} 分钟</span>
           <span><View aria-hidden="true" />{{ article.view_count.toLocaleString() }} 次阅读</span>
+          <WechatShare :title="article.title" :summary="article.summary" :cover="article.cover" />
         </div>
       </header>
 

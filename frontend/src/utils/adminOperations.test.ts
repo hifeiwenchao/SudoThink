@@ -13,7 +13,7 @@ Object.assign(globalThis, {
   window: dom.window, document: dom.window.document, Document: dom.window.Document,
   Element: dom.window.Element, HTMLElement: dom.window.HTMLElement, SVGElement: dom.window.SVGElement,
   Node: dom.window.Node, MutationObserver: dom.window.MutationObserver,
-  MouseEvent: dom.window.MouseEvent, getComputedStyle: dom.window.getComputedStyle,
+  Event: dom.window.Event, MouseEvent: dom.window.MouseEvent, getComputedStyle: dom.window.getComputedStyle,
   requestAnimationFrame: dom.window.requestAnimationFrame, cancelAnimationFrame: dom.window.cancelAnimationFrame,
   ResizeObserver: class { observe() {} unobserve() {} disconnect() {} },
 })
@@ -27,14 +27,26 @@ function compile(source: string) {
 }
 const apiTarget = `${folder}/operations.mjs`
 const utilityTarget = `${folder}/cdnOperations.mjs`
+const requestLogsTarget = `${folder}/requestLogs.mjs`
 const httpBridge = 'const http = { get: (...args) => globalThis.__operationsHttp.get(...args), post: (...args) => globalThis.__operationsHttp.post(...args) }'
 writeFileSync(apiTarget, compile(readFileSync(new URL('../api/operations.ts', import.meta.url), 'utf8').replace("import http from './http'", httpBridge)))
 writeFileSync(utilityTarget, compile(readFileSync(new URL('./cdnOperations.ts', import.meta.url), 'utf8')))
+writeFileSync(requestLogsTarget, compile(readFileSync(new URL('../api/requestLogs.ts', import.meta.url), 'utf8').replace("import http from './http'", httpBridge)))
+const requestsDescriptor = parse(readFileSync(new URL('../components/operations/ApiRequestLogs.vue', import.meta.url), 'utf8')).descriptor
+const requestsScript = compileScript(requestsDescriptor, { id: 'operations-requests-test' })
+const requestsTarget = `${folder}/ApiRequestLogs.mjs`
+writeFileSync(requestsTarget, compile(requestsScript.content.replace(/(['"])@\/api\/requestLogs\1/g, JSON.stringify(pathToFileURL(requestLogsTarget).href))))
+const requestsTemplate = compileTemplate({ source: requestsDescriptor.template!.content, filename: 'ApiRequestLogs.vue', id: 'operations-requests-test', compilerOptions: { bindingMetadata: requestsScript.bindings, expressionPlugins: ['typescript'] } })
+writeFileSync(`${folder}/requests-template.mjs`, compile(requestsTemplate.code))
+const ApiRequestLogs = (await import(pathToFileURL(requestsTarget).href)).default
+ApiRequestLogs.render = (await import(pathToFileURL(`${folder}/requests-template.mjs`).href)).render
+Object.assign(globalThis, { __ApiRequestLogsComponent: ApiRequestLogs })
 const { descriptor } = parse(readFileSync(new URL('../views/AdminOperations.vue', import.meta.url), 'utf8'))
 const script = compileScript(descriptor, { id: 'admin-operations-test' })
 const source = script.content
   .replace(/(['"])@\/api\/operations\1/g, JSON.stringify(pathToFileURL(apiTarget).href))
   .replace(/(['"])@\/utils\/cdnOperations\1/g, JSON.stringify(pathToFileURL(utilityTarget).href))
+  .replace("import ApiRequestLogs from '@/components/operations/ApiRequestLogs.vue'", 'const ApiRequestLogs = globalThis.__ApiRequestLogsComponent')
 const target = `${folder}/AdminOperations.mjs`
 writeFileSync(target, compile(source))
 const template = compileTemplate({ source: descriptor.template!.content, filename: 'AdminOperations.vue', id: 'admin-operations-test', compilerOptions: { bindingMetadata: script.bindings, expressionPlugins: ['typescript'] } })
@@ -49,12 +61,14 @@ function taskPage(id = '12345'): CdnTaskPage {
 }
 type State = { input: string; operation: CdnOperation; queryTaskId: string; submitting: boolean; inputError: string; submission: CdnSubmission | null; submit: () => Promise<void>; loadTasks: (page?: number) => Promise<void>; querySubmittedTask: (id: string) => void }
 async function settle() { await flushPromises(); await nextTick(); await flushPromises(); await nextTick() }
-async function mount(options: { config?: CdnConfiguration; post?: () => Promise<CdnSubmission>; tasks?: (params: Record<string, unknown>) => Promise<CdnTaskPage> } = {}) {
+async function mount(options: { config?: CdnConfiguration; configError?: boolean; post?: () => Promise<CdnSubmission>; tasks?: (params: Record<string, unknown>) => Promise<CdnTaskPage> } = {}) {
   const gets: { url: string; params?: Record<string, unknown> }[] = []
   const posts: { url: string; data: unknown }[] = []
   Object.assign(globalThis, { __operationsHttp: {
     async get(url: string, settings: { params?: Record<string, unknown> }) {
       gets.push({ url, params: settings.params })
+      if (url.endsWith('/config') && options.configError) throw new Error('CDN unavailable')
+      if (url === '/admin/operations/requests') return { items: [], total: 0, page: 1, size: 20 }
       return url.endsWith('/config') ? options.config ?? config : options.tasks?.(settings.params ?? {}) ?? taskPage()
     },
     async post(url: string, data: unknown) { posts.push({ url, data }); return options.post ? options.post() : result },
@@ -82,6 +96,18 @@ test('refresh submissions preserve regex patterns and query each returned task I
   view.state.querySubmittedTask('12346')
   await settle()
   assert.equal(view.gets.at(-1)?.params?.task_id, '12346')
+})
+
+test('request records remain accessible when CDN configuration fails', async (t) => {
+  const view = await mount({ configError: true })
+  t.after(view.unmount)
+  assert.ok(view.container.textContent?.includes('配置加载失败'))
+  const requestsTab = [...view.container.querySelectorAll<HTMLElement>('[role="tab"]')].find((tab) => tab.textContent?.trim() === 'API 请求记录')
+  assert.ok(requestsTab, '运维管理应提供独立的 API 请求记录页签')
+  requestsTab.click()
+  await settle()
+  assert.ok(view.gets.some((request) => request.url === '/admin/operations/requests'))
+  assert.ok(view.container.textContent?.includes('URL 包含'))
 })
 
 test('directory errors prevent submission and preloading uses its own endpoint', async (t) => {
