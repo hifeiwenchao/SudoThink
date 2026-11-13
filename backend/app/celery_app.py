@@ -1,6 +1,8 @@
 """Independent Celery entry point; importing it does not start web resources."""
 from celery import Celery
+from celery.signals import worker_process_init, worker_process_shutdown
 
+from app.celery_runtime import initialize_worker_resources, shutdown_worker_resources
 from app.core.config import settings
 
 
@@ -28,3 +30,15 @@ celery_app.conf.update(
     beat_schedule=BEAT_SCHEDULE,
 )
 celery_app.autodiscover_tasks(["app"])
+
+
+@worker_process_init.connect
+def initialize_worker_process(**kwargs) -> None:
+    """Create async resources once in each prefork worker process."""
+    initialize_worker_resources()
+
+
+@worker_process_shutdown.connect
+def shutdown_worker_process(**kwargs) -> None:
+    """Release async resources when a prefork worker process exits."""
+    shutdown_worker_resources()

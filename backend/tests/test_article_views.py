@@ -181,8 +181,12 @@ class ArticleViewRedisIntegrationTests(ArticleViewDatabaseCase):
 class ArticleViewTaskTests(unittest.TestCase):
     def test_celery_entrypoint_owns_database_and_redis_lifecycles(self):
         task_module = importlib.import_module("app.tasks.article_views")
+        from app.celery_runtime import get_worker_runtime
+
         self.assertTrue(hasattr(task_module, "persist_article_views"), "Persist Celery task is missing")
         task = task_module.persist_article_views
+        runtime = get_worker_runtime()
+        runtime.shutdown()
         redis = SimpleNamespace(get=AsyncMock(return_value="20"), aclose=AsyncMock())
         with tempfile.TemporaryDirectory() as folder:
             config = {
@@ -210,7 +214,9 @@ class ArticleViewTaskTests(unittest.TestCase):
                 self.assertTrue(result.successful(), result.result)
                 self.assertTrue(result.get()["updated"])
                 self.assertFalse(task.apply(args=[article_id]).get()["updated"])
-            self.assertEqual(redis.aclose.await_count, 2)
+            self.assertEqual(redis.aclose.await_count, 0)
+            runtime.shutdown()
+            self.assertEqual(redis.aclose.await_count, 1)
 
             async def verify():
                 await Tortoise.init(config=config)
