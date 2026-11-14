@@ -92,6 +92,7 @@ class Settings:
     OSS_STATIC_PREFIX: str = os.getenv("OSS_STATIC_PREFIX", "static")
     OSS_IMAGE_MAX_BYTES: int = _int(os.getenv("OSS_IMAGE_MAX_BYTES"), 10485760)
     OSS_VIDEO_MAX_BYTES: int = _int(os.getenv("OSS_VIDEO_MAX_BYTES"), 209715200)
+    OSS_AUDIO_MAX_BYTES: int = _int(os.getenv("OSS_AUDIO_MAX_BYTES"), 52428800)
     OSS_MEDIA_CACHE_SECONDS: int = _int(os.getenv("OSS_MEDIA_CACHE_SECONDS"), 31536000)
 
     @property

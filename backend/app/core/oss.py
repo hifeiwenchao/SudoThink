@@ -26,6 +26,12 @@ IMAGE_TYPES = {
     "image/avif": [".avif"],
 }
 VIDEO_TYPES = {"video/mp4": [".mp4"], "video/webm": [".webm"]}
+AUDIO_TYPES = {
+    "audio/mpeg": [".mp3"],
+    "audio/mp4": [".m4a"],
+    "audio/wav": [".wav"],
+    "audio/ogg": [".ogg"],
+}
 POLICY_LIFETIME_SECONDS = 300
 
 
@@ -103,7 +109,7 @@ def validate_oss_config(config=settings) -> dict[str, str]:
         raise ValueError("invalid OSS endpoint")
     cdn_base_url = validate_https_url(config.CDN_BASE_URL)
     media_prefix = normalize_prefix(config.OSS_MEDIA_PREFIX)
-    for size in (config.OSS_IMAGE_MAX_BYTES, config.OSS_VIDEO_MAX_BYTES):
+    for size in (config.OSS_IMAGE_MAX_BYTES, config.OSS_VIDEO_MAX_BYTES, config.OSS_AUDIO_MAX_BYTES):
         if type(size) is not int or size < 1:
             raise ValueError("invalid upload size limit")
     if type(config.OSS_MEDIA_CACHE_SECONDS) is not int or config.OSS_MEDIA_CACHE_SECONDS < 0:
@@ -126,8 +132,10 @@ def get_upload_configuration(config=settings) -> dict:
         "enabled": enabled,
         "image_max_bytes": config.OSS_IMAGE_MAX_BYTES,
         "video_max_bytes": config.OSS_VIDEO_MAX_BYTES,
+        "audio_max_bytes": config.OSS_AUDIO_MAX_BYTES,
         "image_types": IMAGE_TYPES,
         "video_types": VIDEO_TYPES,
+        "audio_types": AUDIO_TYPES,
     }
 
 
@@ -230,6 +238,8 @@ def create_media_upload_policy(
         kind, limit = "images", config.OSS_IMAGE_MAX_BYTES
     elif content_type in VIDEO_TYPES and extension in VIDEO_TYPES[content_type]:
         kind, limit = "videos", config.OSS_VIDEO_MAX_BYTES
+    elif content_type in AUDIO_TYPES and extension in AUDIO_TYPES[content_type]:
+        kind, limit = "audios", config.OSS_AUDIO_MAX_BYTES
     else:
         raise ValueError("unsupported file type or mismatched extension")
     if size > limit:

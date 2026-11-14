@@ -7,5 +7,6 @@ from app.models.comment import Comment
 from app.models.about import AboutPage
 from app.models.donations import DonationSettings
 from app.models.api_request_log import ApiRequestLog
+from app.models.music import MusicSettings
 
-__all__ = ["User", "Article", "Category", "Tag", "Comment", "AboutPage", "DonationSettings", "ApiRequestLog"]
+__all__ = ["User", "Article", "Category", "Tag", "Comment", "AboutPage", "DonationSettings", "ApiRequestLog", "MusicSettings"]

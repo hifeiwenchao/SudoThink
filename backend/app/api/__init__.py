@@ -8,6 +8,7 @@ from app.api.auth import bp as auth_bp
 from app.api.category import bp as category_bp
 from app.api.comment import bp as comment_bp
 from app.api.donations import bp as donations_bp
+from app.api.music import bp as music_bp
 from app.api.health import bp as health_bp
 from app.api.tag import bp as tag_bp
 from app.api.wechat import bp as wechat_bp
@@ -18,6 +19,7 @@ def register_blueprints(app: Sanic) -> None:
         health_bp,
         about_bp,
         donations_bp,
+        music_bp,
         auth_bp,
         article_bp,
         category_bp,

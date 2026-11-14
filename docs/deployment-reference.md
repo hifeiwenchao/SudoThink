@@ -119,7 +119,7 @@ docker compose logs --tail=20 worker
 
 管理员在正文工具栏选择本地图片或视频，或在封面处上传图片。浏览器先向后台申请 5 分钟有效的上传凭证，再直接上传到阿里云 OSS；进度和取消在上传界面显示，成功后插入 CDN 地址。上传期间请等待完成或取消后再保存文章；离开编辑页会提醒。共享编辑器的“关于我”也支持媒体上传。
 
-支持 JPG/JPEG、PNG、GIF、WebP、AVIF 图片，以及 MP4、WebM 视频；默认单张图片最大 10 MB、单个视频最大 200 MB。视频以原文件存储，使用浏览器原生播放器，不执行转码；编码需可被目标浏览器播放。正文可以只有图片或视频。原有外链继续保留，若需迁移到 OSS，请重新上传并替换链接。
+支持 JPG/JPEG、PNG、GIF、WebP、AVIF 图片，以及 MP4、WebM 视频；默认单张图片最大 10 MB、单个视频最大 200 MB。“音乐设置”另支持 MP3、M4A、WAV、OGG 音频，默认每首最大 50 MiB。视频和音频以原文件存储，不执行转码；编码需可被目标浏览器播放。正文可以只有图片或视频。原有外链继续保留，若需迁移到 OSS，请重新上传并替换链接。
 
 在根目录 `.env` 填写配置；Docker 和直接运行后端均读取这些变量：
 
@@ -135,6 +135,7 @@ OSS_MEDIA_PREFIX=media
 OSS_STATIC_PREFIX=static
 OSS_IMAGE_MAX_BYTES=10485760
 OSS_VIDEO_MAX_BYTES=209715200
+OSS_AUDIO_MAX_BYTES=52428800
 OSS_MEDIA_CACHE_SECONDS=31536000
 ```
 
@@ -162,9 +163,9 @@ OSS_MEDIA_CACHE_SECONDS=31536000
 
 在阿里云 CDN 创建 `cdn.example.com` 加速域名，以该 OSS Bucket 为源站，完成 CNAME 解析并配置 HTTPS 证书。推荐保持 Bucket 私有，按阿里云文档开启 CDN 私有 Bucket 回源授权；上传使用签名授权，公开访问使用 CDN。若自行选择公共读 Bucket，确认对象 ACL 和 Bucket 策略允许读取。这里的 CDN URL 用于公开博客，未实现访客 URL 鉴权，不要上传私密资料。
 
-CDN 对公开 JS、字体等跨域资源需要返回 `Access-Control-Allow-Origin: *`，并正确处理 `GET`、`HEAD`、`OPTIONS`；这是公开资源的读取规则，OSS 上传规则仍限定管理站 Origin。开启视频 Range 回源，保留正确的 `Content-Type`，以支持 MP4/WebM 播放和拖动进度。`media/*` 可设置合理缓存时间，上传对象使用随机文件名；删除文章或取消上传不会自动删除 OSS 对象。
+CDN 对公开 JS、字体等跨域资源需要返回 `Access-Control-Allow-Origin: *`，并正确处理 `GET`、`HEAD`、`OPTIONS`；这是公开资源的读取规则，OSS 上传规则仍限定管理站 Origin。开启视频、音频 Range 回源，保留正确的 `Content-Type`，以支持播放和拖动进度。音频 MIME 使用 `audio/mpeg`、`audio/mp4`、`audio/wav`、`audio/ogg`。`media/*` 可设置合理缓存时间，上传对象使用随机文件名；删除文章、移除音乐曲目或取消上传不会自动删除 OSS 对象。
 
-`OSS_MEDIA_CACHE_SECONDS` 控制新上传图片、视频的缓存时长，单位为秒，须为非负整数，默认 `31536000`（365 天）。正数会在上传时写入 OSS 对象元数据 `Cache-Control: public,max-age=<秒数>,immutable`，设为 `0` 则写入 `Cache-Control: no-store`。正文、封面、“关于我”和打赏收款码的媒体上传共用该配置；前端 JS/CSS 等静态资源使用下文的独立缓存策略。CDN 需遵循源站缓存头；如果路径规则强制指定缓存时长，应同步调整该规则。
+`OSS_MEDIA_CACHE_SECONDS` 控制新上传图片、视频、音频的缓存时长，单位为秒，须为非负整数，默认 `31536000`（365 天）。正数会在上传时写入 OSS 对象元数据 `Cache-Control: public,max-age=<秒数>,immutable`，设为 `0` 则写入 `Cache-Control: no-store`。正文、封面、“关于我”、打赏收款码和音乐的媒体上传共用该配置；前端 JS/CSS 等静态资源使用下文的独立缓存策略。CDN 需遵循源站缓存头；如果路径规则强制指定缓存时长，应同步调整该规则。
 
 修改该参数只影响后续上传，已有对象保留原元数据。已有资源需修改 OSS 的 `Cache-Control` 元数据并刷新 CDN，或重新上传生成新 URL；浏览器已保存长缓存的资源优先通过新 URL 更新。
 
@@ -257,4 +258,4 @@ TRUSTED_PROXY_CIDRS=172.30.0.0/24
 
 ## 已有数据库升级说明
 
-首次部署使用 `init_db.py`；旧安装在启动新版后端前使用 `upgrade_site_content.py`。升级会补齐分类权重、站点设置、打赏设置、API 请求记录与访客评论字段，保留已有文章、阅读数、分类、管理员、评论和站点设置；已经被旧版删除的驳回评论无法恢复。脚本可重复运行，账号需有 `CREATE`、`ALTER` 权限。完整执行顺序见 [README 的更新流程](../README.md#更新应用)。
+首次部署使用 `init_db.py`；旧安装在启动新版后端前使用 `upgrade_site_content.py`。升级会补齐分类权重、站点设置、打赏与音乐设置、API 请求记录与访客评论字段，保留已有文章、阅读数、分类、管理员、评论和站点设置；已经被旧版删除的驳回评论无法恢复。脚本可重复运行，账号需有 `CREATE`、`ALTER` 权限。完整执行顺序见 [README 的更新流程](../README.md#更新应用)。

@@ -90,6 +90,11 @@ const routes: RouteRecordRaw[] = [
         name: 'admin-operations',
         component: () => import('@/views/AdminOperations.vue'),
       },
+      {
+        path: 'music',
+        name: 'admin-music',
+        component: () => import('@/views/AdminMusic.vue'),
+      },
     ],
   },
 ]

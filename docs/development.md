@@ -70,6 +70,8 @@ await schedule_task_once(
 | 编辑关于我 | GET / PUT | `/api/admin/about`（管理员） |
 | 公开打赏设置 | GET | `/api/donations` |
 | 读取 / 保存打赏设置 | GET / PUT | `/api/admin/donations`（管理员） |
+| 公开音乐列表 | GET | `/api/music`（未启用或空列表时返回隐藏状态） |
+| 读取 / 保存音乐设置 | GET / PUT | `/api/admin/music`（管理员，`enabled`、有序 `tracks`，每项含 `title`、`artist`、`url`） |
 | 上传配置 | GET | `/api/admin/uploads/config`（管理员） |
 | OSS 直传凭证 | POST | `/api/admin/uploads/policy`（管理员） |
 | 标签列表 | GET | `/api/tags` |

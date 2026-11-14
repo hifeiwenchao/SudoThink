@@ -7,6 +7,7 @@ import { isAdminSite, PUBLIC_SITE_URL } from '@/site'
 import { useTaxonomyStore } from '@/stores/taxonomy'
 import ThemeSwitcher from '@/components/ThemeSwitcher.vue'
 import DonationPanel from '@/components/DonationPanel.vue'
+import MusicPlayer from '@/components/MusicPlayer.vue'
 import { donationsApi } from '@/api/donations'
 import { provideDonationSettings } from '@/composables/useDonationSettings'
 import '@/styles/blog.css'
@@ -87,6 +88,7 @@ const onLogout = () => {
       </div>
     </footer>
     <DonationPanel placement="floating" />
+    <MusicPlayer />
   </div>
   <el-container v-else class="layout">
     <el-header class="header">

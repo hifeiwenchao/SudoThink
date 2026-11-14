@@ -14,12 +14,12 @@ const uploading = ref(false)
 const percentage = ref(0)
 const error = ref('')
 const status = ref('')
-const kindLabel = computed(() => props.kind === 'image' ? '图片' : '视频')
-const acceptedTypes = computed(() => config.value ? (props.kind === 'image' ? config.value.image_types : config.value.video_types) : {})
+const kindLabel = computed(() => props.kind === 'image' ? '图片' : props.kind === 'audio' ? '音频' : '视频')
+const acceptedTypes = computed(() => config.value ? (props.kind === 'image' ? config.value.image_types : props.kind === 'audio' ? config.value.audio_types : config.value.video_types) : {})
 const accept = computed(() => [...Object.keys(acceptedTypes.value), ...Object.values(acceptedTypes.value).flat()].join(','))
 const maxSize = computed(() => {
   if (!config.value) return ''
-  const bytes = props.kind === 'image' ? config.value.image_max_bytes : config.value.video_max_bytes
+  const bytes = props.kind === 'image' ? config.value.image_max_bytes : props.kind === 'audio' ? config.value.audio_max_bytes : config.value.video_max_bytes
   return `${(bytes / 1024 / 1024).toLocaleString('zh-CN', { maximumFractionDigits: 1 })} MB`
 })
 let active = true

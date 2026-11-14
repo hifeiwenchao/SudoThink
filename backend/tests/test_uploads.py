@@ -37,6 +37,7 @@ def configured(**overrides):
         "OSS_STATIC_PREFIX": "static",
         "OSS_IMAGE_MAX_BYTES": 10485760,
         "OSS_VIDEO_MAX_BYTES": 209715200,
+        "OSS_AUDIO_MAX_BYTES": 52428800,
         "OSS_MEDIA_CACHE_SECONDS": 31536000,
     }
     values.update(overrides)
@@ -140,6 +141,11 @@ class UploadTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(data["enabled"])
             self.assertEqual(data["image_max_bytes"], 10485760)
             self.assertEqual(data["video_max_bytes"], 209715200)
+            self.assertEqual(data["audio_max_bytes"], 52428800)
+            self.assertEqual(data["audio_types"], {
+                "audio/mpeg": [".mp3"], "audio/mp4": [".m4a"],
+                "audio/wav": [".wav"], "audio/ogg": [".ogg"],
+            })
             self.assertEqual(data["image_types"]["image/jpeg"], [".jpg", ".jpeg"])
             self.assertEqual(data["video_types"], {"video/mp4": [".mp4"], "video/webm": [".webm"]})
             with self.assertRaises(APIError) as unavailable:
@@ -167,6 +173,10 @@ class UploadTests(unittest.IsolatedAsyncioTestCase):
                 ("../../my private image.JPEG", "image/jpeg", "images", "jpeg"),
                 ("movie.mp4", "video/mp4", "videos", "mp4"),
                 ("graphic.avif", "image/avif", "images", "avif"),
+                ("track.MP3", "audio/mpeg", "audios", "mp3"),
+                ("track.m4a", "audio/mp4", "audios", "m4a"),
+                ("track.wav", "audio/wav", "audios", "wav"),
+                ("track.ogg", "audio/ogg", "audios", "ogg"),
             ):
                 with self.subTest(mime=mime):
                     payload = {"filename": filename, "size": 1234, "content_type": mime}
@@ -194,6 +204,11 @@ class UploadTests(unittest.IsolatedAsyncioTestCase):
             {**valid, "size": "100"}, {**valid, "size": 1.5},
             {**valid, "size": 10485761},
             {**valid, "filename": "video.mp4", "content_type": "video/mp4", "size": 209715201},
+            {**valid, "filename": "track.mp3", "content_type": "audio/mpeg", "size": 52428801},
+            {**valid, "filename": "track.mp3", "content_type": "audio/mp4"},
+            {**valid, "filename": "track.mp3", "content_type": "audio/mp3"},
+            {**valid, "filename": "track.mp3.exe", "content_type": "audio/mpeg"},
+            {**valid, "filename": "track.html", "content_type": "audio/mpeg"},
             {**valid, "filename": 123}, {**valid, "filename": ""},
             {**valid, "filename": "x" * 256 + ".png"},
             {**valid, "filename": "image.png\x00"},
@@ -221,6 +236,7 @@ class UploadTests(unittest.IsolatedAsyncioTestCase):
             for filename, mime, limit in (
                 ("image.png", "image/png", 10485760),
                 ("video.webm", "video/webm", 209715200),
+                ("track.mp3", "audio/mpeg", 52428800),
             ):
                 result = self.data(await uploads.create_upload_policy(self.request(self.admin, {
                     "filename": filename, "content_type": mime, "size": limit,
@@ -236,7 +252,7 @@ class UploadTests(unittest.IsolatedAsyncioTestCase):
             (0, "no-store"),
         ):
             with patch.object(uploads, "settings", configured(OSS_MEDIA_CACHE_SECONDS=seconds)):
-                for filename, mime in (("image.png", "image/png"), ("video.mp4", "video/mp4")):
+                for filename, mime in (("image.png", "image/png"), ("video.mp4", "video/mp4"), ("track.mp3", "audio/mpeg")):
                     with self.subTest(seconds=seconds, mime=mime):
                         result = self.data(await uploads.create_upload_policy(self.request(self.admin, {
                             "filename": filename, "size": 100, "content_type": mime,
@@ -264,7 +280,7 @@ class UploadTests(unittest.IsolatedAsyncioTestCase):
             {"CDN_BASE_URL": "https://cdn.example.com\\evil"},
             {"OSS_MEDIA_PREFIX": "../media"}, {"OSS_MEDIA_PREFIX": "media/../other"},
             {"OSS_MEDIA_PREFIX": "media//nested"}, {"OSS_MEDIA_PREFIX": "media/%2e%2e"},
-            {"OSS_IMAGE_MAX_BYTES": 0}, {"OSS_VIDEO_MAX_BYTES": -1},
+            {"OSS_IMAGE_MAX_BYTES": 0}, {"OSS_VIDEO_MAX_BYTES": -1}, {"OSS_AUDIO_MAX_BYTES": -1},
             {"OSS_MEDIA_CACHE_SECONDS": -1}, {"OSS_MEDIA_CACHE_SECONDS": True},
             {"OSS_MEDIA_CACHE_SECONDS": "3600"}, {"OSS_MEDIA_CACHE_SECONDS": 1.5},
             {"ACCESS_KEY_ID": "id\r\nInjected: header"},

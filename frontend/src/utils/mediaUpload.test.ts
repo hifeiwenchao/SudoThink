@@ -6,8 +6,10 @@ const config: UploadConfig = {
   enabled: true,
   image_max_bytes: 10,
   video_max_bytes: 20,
+  audio_max_bytes: 30,
   image_types: { 'image/jpeg': ['.jpg', '.jpeg'], 'image/png': ['.png'] },
   video_types: { 'video/mp4': ['.mp4'], 'video/webm': ['.webm'] },
+  audio_types: { 'audio/mpeg': ['.mp3'], 'audio/mp4': ['.m4a'], 'audio/wav': ['.wav'], 'audio/ogg': ['.ogg'] },
 }
 const policy: UploadPolicy = {
   upload_url: 'https://bucket.oss-cn-hangzhou.aliyuncs.com',
@@ -74,9 +76,42 @@ describe('media validation', () => {
     assert.throws(() => validateMediaFile(image, { ...config, enabled: false }), /未启用/)
     assert.throws(() => validateMediaFile(video, config, 'image'), /图片/)
   })
+
+  it('accepts supported audio aliases and detects missing audio MIME by extension only in audio mode', () => {
+    for (const [name, type, canonical] of [
+      ['song.MP3', 'audio/mp3', 'audio/mpeg'], ['song.m4a', 'audio/x-m4a', 'audio/mp4'],
+      ['song.wav', 'audio/x-wav', 'audio/wav'], ['song.ogg', 'application/ogg', 'audio/ogg'],
+      ['song.mp3', '', 'audio/mpeg'], ['song.wav', 'application/octet-stream', 'audio/wav'],
+    ]) {
+      assert.deepEqual(validateMediaFile(new File(['song'], name!, { type }), config, 'audio'), { kind: 'audio', contentType: canonical })
+    }
+    assert.throws(() => validateMediaFile(new File(['x'], 'song.mp3'), config), /支持/)
+    assert.throws(() => validateMediaFile(new File(['x'], 'song.mp3', { type: 'text/html' }), config, 'audio'), /音频/)
+    assert.throws(() => validateMediaFile(new File(['x'], 'song.mp3', { type: 'audio/wav' }), config, 'audio'), /后缀/)
+    assert.throws(() => validateMediaFile(new File(['x'.repeat(31)], 'song.mp3', { type: 'audio/mpeg' }), config, 'audio'), /过大/)
+    assert.throws(() => validateMediaFile(new File([], 'song.mp3', { type: 'audio/mpeg' }), config, 'audio'), /空文件/)
+  })
 })
 
 describe('OSS direct uploads', () => {
+  it('sends the same canonical audio MIME in the policy and binary form part', async () => {
+    OssRequest.respond = request => {
+      const file = request.body?.get('file') as File
+      assert.equal(file.type, 'audio/mp4')
+      assert.equal(file.name, 'song.m4a')
+      assert.equal(file.size, 4)
+      request.complete(201)
+    }
+    const result = await uploadMedia(new File(['song'], 'song.m4a', { type: 'audio/x-m4a' }), {
+      config, kind: 'audio', requestPolicy: async input => {
+        assert.deepEqual(input, { filename: 'song.m4a', size: 4, content_type: 'audio/mp4' })
+        return { ...policy, public_url: 'https://cdn.example.com/media/audios/song.m4a' }
+      },
+    })
+    assert.equal(result.kind, 'audio')
+    assert.match(result.url, /audios\/song.m4a$/)
+  })
+
   for (const [status, response] of [[200, ''], [201, '<PostResponse><Key>media/images/unique.png</Key></PostResponse>']] as const) {
     it(`submits signed fields before the file and accepts OSS ${status} without JSON parsing`, async () => {
       const file = new File(['png'], 'photo.png', { type: 'image/png' })

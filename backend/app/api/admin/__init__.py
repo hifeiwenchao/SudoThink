@@ -7,6 +7,7 @@ from app.api.admin.articles import bp as articles_bp
 from app.api.admin.comments import bp as comments_bp
 from app.api.admin.about import bp as about_bp
 from app.api.admin.donations import bp as donations_bp
+from app.api.admin.music import bp as music_bp
 from app.api.admin.uploads import bp as uploads_bp
 from app.api.admin.operations import bp as operations_bp
 from app.api.admin.request_logs import bp as request_logs_bp
@@ -19,6 +20,7 @@ bp = Blueprint.group(
     comments_bp,
     about_bp,
     donations_bp,
+    music_bp,
     uploads_bp,
     operations_bp,
     request_logs_bp,

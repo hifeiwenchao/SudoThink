@@ -2,8 +2,8 @@
 
 一个前后端分离的博客系统，提供公开站点和独立域名的管理后台。
 
-- 文章、分类、标签、“关于我”、访客评论审核与文章打赏。
-- 富文本创作、OSS 图片/视频直传、CDN 刷新与预热、API 请求记录查询。
+- 文章、分类、标签、“关于我”、访客评论审核、文章打赏与网站音乐播放。
+- 富文本创作、OSS 图片/视频/音频直传、CDN 刷新与预热、API 请求记录查询。
 - 浅色/深色/系统外观，以及时间戳、二维码、JSON、cron 等浏览器本地工具。
 
 文章阅读数由 Redis 实时累加，经 Celery 延迟写回 MySQL；请求记录独立保存并脱敏。详细机制见 [开发文档](./docs/development.md)。
@@ -204,5 +204,5 @@ celery -A app.celery_app:celery_app beat --loglevel=INFO --schedule=data/celeryb
 ## 详细文档
 
 - [部署配置参考](./docs/deployment-reference.md)：HTTPS、环境变量、OSS/CDN、ICP、QQWry 与可信代理。
-- [功能使用说明](./docs/features.md)：创作、工具箱、外观、分类标签、打赏与评论审核。
+- [功能使用说明](./docs/features.md)：创作、工具箱、外观、分类标签、音乐、打赏与评论审核。
 - [开发机制与接口](./docs/development.md)：Celery、通用延迟任务、阅读计数、请求记录和 API 路径。
