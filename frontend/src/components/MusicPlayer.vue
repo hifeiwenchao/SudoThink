@@ -186,7 +186,7 @@ onBeforeUnmount(() => {
     </div>
     <div class="music-mini">
       <button class="music-mini-play" type="button" :aria-label="playing || starting ? '暂停音乐' : '播放音乐'" @click="togglePlay"><svg v-if="playing || starting" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h4v14H6zm8 0h4v14h-4z" /></svg><svg v-else viewBox="0 0 24 24" aria-hidden="true"><path d="m8 4 13 8-13 8z" /></svg></button>
-      <button ref="expandButton" class="music-mini-info" type="button" :aria-expanded="expanded" aria-controls="music-playlist" :aria-label="expanded ? '收起音乐列表' : '展开音乐列表'" @click="toggleExpanded"><span>{{ currentTrack.title }}</span><small>{{ error ? '播放失败 · 展开重试' : playing ? '正在播放' : starting ? '正在加载…' : '听点音乐' }}</small></button>
+      <button ref="expandButton" class="music-mini-info" type="button" :aria-expanded="expanded" aria-controls="music-playlist" :aria-label="expanded ? '收起音乐列表' : '展开音乐列表'" @click="toggleExpanded"><span class="music-mini-title"><span>{{ currentTrack.title }}</span><span v-if="playing" class="music-wave" aria-hidden="true"><i /><i /><i /><i /></span></span><small>{{ error ? '播放失败 · 展开重试' : playing ? '正在播放' : starting ? '正在加载…' : '听点音乐' }}</small></button>
       <button class="music-mini-next" type="button" aria-label="下一首" :disabled="tracks.length < 2" @click="skip(1)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 5h2v14h-2zM6 5v14l10-7z" /></svg></button>
     </div>
   </section>
@@ -202,7 +202,15 @@ onBeforeUnmount(() => {
 .music-mini button, .music-controls button { display: grid; place-items: center; flex-shrink: 0; border: 0; background: transparent; border-radius: 50%; width: 36px; height: 36px; }
 .music-mini .music-mini-play, .music-controls .music-play { background: var(--blog-accent); color: var(--blog-surface); }
 .music-mini .music-mini-info { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 3px; min-width: 0; flex: 1; width: auto; height: 42px; border-radius: 4px; padding: 0; text-align: left; }
-.music-mini-info span { width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; font-weight: 600; }
+.music-mini-info .music-mini-title { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; }
+.music-mini-title > span:first-child { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; font-weight: 600; }
+.music-wave { display: inline-flex; align-items: center; flex: 0 0 auto; gap: 2px; width: 16px; height: 14px; color: var(--blog-accent); }
+.music-wave i { display: block; width: 2px; height: 5px; border-radius: 2px; background: currentColor; animation: music-wave 900ms ease-in-out infinite alternate; }
+.music-wave i:nth-child(2) { height: 10px; animation-delay: -450ms; }
+.music-wave i:nth-child(3) { height: 7px; animation-delay: -250ms; }
+.music-wave i:nth-child(4) { height: 12px; animation-delay: -650ms; }
+@keyframes music-wave { from { transform: scaleY(.45); } to { transform: scaleY(1); } }
+@media (prefers-reduced-motion: reduce) { .music-wave i { animation: none; } }
 .music-mini-info small { font-size: 10px; color: var(--blog-muted); }
 .music-panel { margin-bottom: 10px; padding: 16px; max-height: calc(100dvh - 112px); overflow-y: auto; outline: none; }
 .music-panel-heading { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--blog-muted); }

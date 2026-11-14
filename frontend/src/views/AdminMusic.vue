@@ -22,6 +22,7 @@ const uploading = ref(false)
 const uploadProgress = ref(0)
 const uploadStatus = ref('')
 const uploadErrors = ref<string[]>([])
+const draggingIndex = ref<number | null>(null)
 const fileInput = ref<HTMLInputElement>()
 const audioList = ref<HTMLElement>()
 const snapshot = () => JSON.stringify(form)
@@ -143,6 +144,38 @@ function move(index: number, delta: number) {
   form.tracks.splice(destination, 0, track)
 }
 
+function dragStart(index: number, event: DragEvent) {
+  if (!editable.value || uploading.value) {
+    event.preventDefault()
+    return
+  }
+  draggingIndex.value = index
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', String(index))
+  }
+}
+
+function dragOver(index: number, event: DragEvent) {
+  if (draggingIndex.value === null || draggingIndex.value === index || !editable.value || uploading.value) return
+  event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+}
+
+function drop(index: number, event: DragEvent) {
+  event.preventDefault()
+  const source = draggingIndex.value
+  draggingIndex.value = null
+  if (source === null || source === index || !editable.value || uploading.value) return
+  const track = form.tracks.splice(source, 1)[0]
+  if (!track) return
+  form.tracks.splice(Math.min(index, form.tracks.length), 0, track)
+}
+
+function dragEnd() {
+  draggingIndex.value = null
+}
+
 function remove(index: number) {
   if (!editable.value || uploading.value) return
   form.tracks.splice(index, 1)
@@ -244,7 +277,7 @@ onBeforeUnmount(() => {
       <p v-if="validationError" class="save-error" role="alert">{{ validationError }}</p>
       <div ref="audioList" class="track-list">
         <el-empty v-if="loaded && !form.tracks.length" description="还没有音频，前台播放器将自动隐藏" :image-size="90" />
-        <section v-for="(track, index) in form.tracks" :key="track.url" class="settings-panel track-card" :aria-label="`第 ${index + 1} 首：${track.title || '未命名音频'}`">
+        <section v-for="(track, index) in form.tracks" :key="track.url" class="settings-panel track-card" :class="{ 'is-dragging': draggingIndex === index }" :aria-label="`第 ${index + 1} 首：${track.title || '未命名音频'}`" :draggable="editable && !uploading" @dragstart="dragStart(index, $event)" @dragover="dragOver(index, $event)" @drop="drop(index, $event)" @dragend="dragEnd">
           <header class="track-heading"><strong class="track-number">{{ String(index + 1).padStart(2, '0') }}</strong><div class="track-actions">
             <el-button :icon="ArrowUp" :disabled="!editable || uploading || index === 0" :aria-label="`上移第 ${index + 1} 首音频`" title="上移" @click="move(index, -1)" />
             <el-button :icon="ArrowDown" :disabled="!editable || uploading || index === form.tracks.length - 1" :aria-label="`下移第 ${index + 1} 首音频`" title="下移" @click="move(index, 1)" />
@@ -257,7 +290,7 @@ onBeforeUnmount(() => {
           <audio controls preload="none" :src="track.url" :aria-label="`试听：${track.title || '未命名音频'}`" @play="pauseOtherPreviews">当前浏览器不支持音频播放。</audio>
         </section>
       </div>
-      <p v-if="form.tracks.length" class="hint">移除曲目并保存后，前台播放列表会同步更新。</p>
+      <p v-if="form.tracks.length" class="hint">拖动歌曲卡片可调整顺序；也可以使用上移、下移按钮。保存后，前台播放列表会同步更新。</p>
     </div>
   </div>
 </template>
@@ -284,6 +317,10 @@ onBeforeUnmount(() => {
 .track-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
 .track-list > :deep(.el-empty) { grid-column: 1 / -1; }
 .track-card { margin: 0; }
+.track-card[draggable='true'] { cursor: grab; }
+.track-card[draggable='true']:active { cursor: grabbing; }
+.track-card.is-dragging { opacity: .55; }
+.track-card :deep(input), .track-card audio, .track-actions { cursor: auto; }
 .track-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 18px; }
 .track-number { color: var(--el-text-color-secondary); font: 600 17px monospace; }
 .track-actions { display: flex; align-items: center; gap: 7px; }

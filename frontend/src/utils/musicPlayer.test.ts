@@ -100,6 +100,16 @@ test('music starts only after visitor intent and retains its audio node while op
   assert.equal(element.paused, true)
 })
 
+test('playing music shows an animated wave indicator and hides it when paused', async (t) => {
+  const view = await mount()
+  t.after(view.unmount)
+  assert.equal(view.container.querySelector('.music-wave'), null)
+  await view.click('播放音乐')
+  assert.equal(view.container.querySelectorAll('.music-wave i').length, 4)
+  await view.click('暂停音乐')
+  assert.equal(view.container.querySelector('.music-wave'), null)
+})
+
 test('clicking outside the player closes the expanded playlist while clicks inside keep it open', async (t) => {
   const view = await mount()
   t.after(view.unmount)

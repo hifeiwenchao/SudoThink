@@ -88,6 +88,32 @@ test('multiple uploads preserve successful songs when another upload fails, and 
   assert.equal(view.state.isDirty, false)
 })
 
+test('dragging a song card reorders the tracks while preserving the existing save order', async t => {
+  const view = await mount({ settings: { enabled: true, tracks: [
+    { title: '第一首', artist: '', url: 'https://cdn.example.com/one.mp3' },
+    { title: '第二首', artist: '', url: 'https://cdn.example.com/two.mp3' },
+    { title: '第三首', artist: '', url: 'https://cdn.example.com/three.mp3' },
+  ] } })
+  t.after(view.unmount)
+  const cards = view.container.querySelectorAll<HTMLElement>('.track-card')
+  assert.equal(cards.length, 3)
+  const dataTransfer = { effectAllowed: '', dropEffect: '', setData() {} }
+  const start = new dom.window.Event('dragstart', { bubbles: true, cancelable: true })
+  Object.defineProperty(start, 'dataTransfer', { value: dataTransfer })
+  cards[0]!.dispatchEvent(start)
+  const over = new dom.window.Event('dragover', { bubbles: true, cancelable: true })
+  Object.defineProperty(over, 'dataTransfer', { value: dataTransfer })
+  cards[2]!.dispatchEvent(over)
+  const drop = new dom.window.Event('drop', { bubbles: true, cancelable: true })
+  Object.defineProperty(drop, 'dataTransfer', { value: dataTransfer })
+  cards[2]!.dispatchEvent(drop)
+  await settle()
+  assert.deepEqual(view.state.form.tracks.map(track => track.title), ['第二首', '第三首', '第一首'])
+  view.state.form.enabled = true
+  await view.state.save()
+  assert.deepEqual(view.saves[0]?.tracks.map(track => track.title), ['第二首', '第三首', '第一首'])
+})
+
 test('canceling a batch preserves completed uploads and prevents pending files from entering the playlist', async t => {
   let started!: () => void
   const secondStarted = new Promise<void>(resolve => { started = resolve })
