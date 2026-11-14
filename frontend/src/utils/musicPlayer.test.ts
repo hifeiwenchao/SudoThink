@@ -100,6 +100,23 @@ test('music starts only after visitor intent and retains its audio node while op
   assert.equal(element.paused, true)
 })
 
+test('clicking outside the player closes the expanded playlist while clicks inside keep it open', async (t) => {
+  const view = await mount()
+  t.after(view.unmount)
+  await view.click('展开音乐列表')
+  assert.ok(view.container.querySelector('.music-panel'))
+
+  const inside = view.container.querySelector('.music-panel')!
+  inside.dispatchEvent(new dom.window.Event('pointerdown', { bubbles: true }))
+  await settle()
+  assert.ok(view.container.querySelector('.music-panel'))
+
+  document.body.dispatchEvent(new dom.window.Event('pointerdown', { bubbles: true }))
+  await settle()
+  assert.equal(view.container.querySelector('.music-panel'), null)
+  assert.equal(view.container.querySelector<HTMLButtonElement>('.music-mini-info')?.getAttribute('aria-expanded'), 'false')
+})
+
 test('next, previous, playlist selection and ended follow the saved order and wrap around', async (t) => {
   const view = await mount()
   t.after(view.unmount)

@@ -13,6 +13,7 @@ const currentTime = ref(0)
 const duration = ref(0)
 const volume = ref(0.5)
 const error = ref('')
+const player = ref<HTMLElement>()
 const playlist = ref<HTMLElement>()
 const expandButton = ref<HTMLButtonElement>()
 let active = true
@@ -135,7 +136,13 @@ function closePanel() {
   expandButton.value?.focus()
 }
 
+function closePanelOnOutsidePointer(event: PointerEvent) {
+  if (!expanded.value || !(event.target instanceof Node) || player.value?.contains(event.target)) return
+  expanded.value = false
+}
+
 onMounted(async () => {
+  document.addEventListener('pointerdown', closePanelOnOutsidePointer)
   try {
     const data = await musicApi.get(controller.signal)
     if (active && data.enabled && Array.isArray(data.tracks)) tracks.value = data.tracks
@@ -146,6 +153,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   active = false
+  document.removeEventListener('pointerdown', closePanelOnOutsidePointer)
   ++playVersion
   controller.abort()
   if (audio.value) {
@@ -157,7 +165,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section v-if="currentTrack" class="music-player" aria-label="网站音乐播放器">
+  <section v-if="currentTrack" ref="player" class="music-player" aria-label="网站音乐播放器">
     <audio ref="audio" :key="currentTrack.url" :src="currentTrack.url" preload="none" @play="syncPlayback" @pause="syncPlayback" @timeupdate="syncTime" @loadedmetadata="syncTime" @durationchange="syncTime" @ended="ended" @error="failed" />
     <div v-if="expanded" id="music-playlist" ref="playlist" class="music-panel" tabindex="-1" @keydown.esc.stop="closePanel">
       <div class="music-panel-heading"><span>听点音乐</span><span>{{ tracks.length }} 首</span><button type="button" aria-label="收起音乐列表" @click="closePanel">×</button></div>
