@@ -1,8 +1,54 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { cdnOperationLimit, parseCdnUrls, validateCdnUrls } from './cdnOperations'
+import { CDN_URL_HISTORY_LIMIT, cdnOperationLimit, loadCdnUrlHistory, parseCdnUrls, saveCdnUrlHistory, validateCdnUrls } from './cdnOperations'
 
 const limits = { refresh_file: 1000, refresh_directory: 100, refresh_regex: 1, preload: 100, max_url_length: 1024 }
+
+test('URL history persists unique addresses with repeated submissions moved to the front', () => {
+  const values = new Map<string, string>()
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => { values.set(key, value) },
+  }
+  const first = 'https://cdn.example.com/A.png?v=1&size=2'
+  const second = 'https://cdn.example.com/a.png?v=1&size=2'
+  const pattern = 'https://cdn.example.com/static/[^/]*[0-9].*.jpg'
+  const initial = saveCdnUrlHistory([` ${first} `, second, first, '', '  '], [], storage)
+  assert.deepEqual(initial, [first, second])
+  assert.deepEqual(loadCdnUrlHistory(storage), initial)
+  const updated = saveCdnUrlHistory([pattern, second, pattern], initial, storage)
+  assert.deepEqual(updated, [pattern, second, first])
+  assert.deepEqual(loadCdnUrlHistory(storage), updated)
+})
+
+test('URL history retains at most 30 unique addresses while preserving new batch order', () => {
+  const old = Array.from({ length: 35 }, (_, index) => `https://cdn.example.com/${index}.png`)
+  const storage = { setItem() {} }
+  const updated = saveCdnUrlHistory([old[34]!, old[0]!, old[34]!], old, storage)
+  assert.equal(CDN_URL_HISTORY_LIMIT, 30)
+  assert.equal(updated.length, 30)
+  assert.deepEqual(updated, [old[34], ...old.slice(0, 29)])
+  assert.deepEqual(loadCdnUrlHistory({ getItem: () => JSON.stringify(old) }), old.slice(0, 30))
+})
+
+test('malformed or blocked history storage does not break CDN operations', () => {
+  for (const value of [null, '{broken', '{}', 'null', '123', '"https://cdn.example.com/a.png"']) {
+    assert.deepEqual(loadCdnUrlHistory({ getItem: () => value }), [])
+  }
+  assert.deepEqual(loadCdnUrlHistory({ getItem: () => '[null, 1, "  ", " https://cdn.example.com/a.png ", "https://cdn.example.com/a.png"]' }), ['https://cdn.example.com/a.png'])
+  assert.deepEqual(loadCdnUrlHistory({ getItem() { throw new Error('Storage blocked') } }), [])
+  assert.deepEqual(saveCdnUrlHistory(['https://cdn.example.com/new.png'], ['https://cdn.example.com/old.png'], { setItem() { throw new Error('Storage full') } }), ['https://cdn.example.com/new.png', 'https://cdn.example.com/old.png'])
+
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: Object.defineProperty({}, 'localStorage', { get() { throw new Error('Storage blocked') } }) })
+  try {
+    assert.deepEqual(loadCdnUrlHistory(), [])
+    assert.deepEqual(saveCdnUrlHistory(['https://cdn.example.com/a.png'], []), ['https://cdn.example.com/a.png'])
+  } finally {
+    if (previousWindow) Object.defineProperty(globalThis, 'window', previousWindow)
+    else Reflect.deleteProperty(globalThis, 'window')
+  }
+})
 
 test('multiline input trims and deduplicates addresses without changing CDN query or matching patterns', () => {
   const pattern = 'https://cdn.example.com/static/[^/]*[0-9][a-z].*.jpg?size=[0-9]'

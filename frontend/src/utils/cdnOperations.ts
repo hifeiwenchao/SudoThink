@@ -1,5 +1,32 @@
 import type { CdnConfiguration, CdnOperation } from '../api/operations'
 
+export const CDN_URL_HISTORY_LIMIT = 30
+const CDN_URL_HISTORY_KEY = 'sudothink:cdn-url-history'
+
+function normalizeCdnUrlHistory(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const urls = value.filter((item): item is string => typeof item === 'string').map((url) => url.trim()).filter(Boolean)
+  return [...new Set(urls)].slice(0, CDN_URL_HISTORY_LIMIT)
+}
+
+export function loadCdnUrlHistory(storage?: Pick<Storage, 'getItem'>): string[] {
+  try {
+    return normalizeCdnUrlHistory(JSON.parse((storage ?? window.localStorage).getItem(CDN_URL_HISTORY_KEY) || 'null'))
+  } catch {
+    return []
+  }
+}
+
+export function saveCdnUrlHistory(urls: string[], history: string[], storage?: Pick<Storage, 'setItem'>): string[] {
+  const updated = normalizeCdnUrlHistory([...urls, ...history])
+  try {
+    ;(storage ?? window.localStorage).setItem(CDN_URL_HISTORY_KEY, JSON.stringify(updated))
+  } catch {
+    // History remains available for this visit when browser storage is unavailable.
+  }
+  return updated
+}
+
 export function parseCdnUrls(input: string): string[] {
   return [...new Set(input.split(/\r?\n/).map((line) => line.trim()).filter(Boolean))]
 }

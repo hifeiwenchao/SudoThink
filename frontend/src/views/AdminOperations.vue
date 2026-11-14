@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { operationsApi, type CdnConfiguration, type CdnOperation, type CdnSubmission, type CdnTask } from '@/api/operations'
-import { cdnOperationLimit, parseCdnUrls, validateCdnUrls } from '@/utils/cdnOperations'
+import { CDN_URL_HISTORY_LIMIT, cdnOperationLimit, loadCdnUrlHistory, parseCdnUrls, saveCdnUrlHistory, validateCdnUrls } from '@/utils/cdnOperations'
 import ApiRequestLogs from '@/components/operations/ApiRequestLogs.vue'
 
 const activeTab = ref('cdn')
@@ -10,6 +10,7 @@ const configLoading = ref(false)
 const configError = ref('')
 const operation = ref<CdnOperation>('File')
 const input = ref('')
+const urlHistory = ref(loadCdnUrlHistory())
 const inputError = ref('')
 const submitting = ref(false)
 const submitError = ref('')
@@ -113,6 +114,7 @@ async function submit() {
     const result = selected === 'Preload'
       ? await operationsApi.preload(submittedUrls)
       : await operationsApi.refresh(submittedUrls, selected)
+    urlHistory.value = saveCdnUrlHistory(submittedUrls, urlHistory.value)
     if (!active) return
     submission.value = result
     submittedOperation.value = operationLabels[selected]
@@ -129,6 +131,11 @@ async function submit() {
   } finally {
     if (active) submitting.value = false
   }
+}
+
+function addHistoryUrl(url: string) {
+  if (!available.value || submitting.value) return
+  input.value = parseCdnUrls(`${input.value}\n${url}`).join('\n')
 }
 
 function querySubmittedTask(taskId: string) {
@@ -206,6 +213,15 @@ onBeforeUnmount(() => {
             <span>每行一条，空行与重复地址会自动合并。每次最多 10 个 CDN 域名。</span>
             <span v-if="config">{{ urls.length }} / {{ limit }} 条；每条最多 {{ config.limits.max_url_length }} 字符</span>
           </div>
+          <details v-if="urlHistory.length" class="url-history">
+            <summary>URL 历史记录（{{ urlHistory.length }} / {{ CDN_URL_HISTORY_LIMIT }}）</summary>
+            <p class="field-hint">最近提交的地址保存在当前浏览器，点击添加到输入框。</p>
+            <ul>
+              <li v-for="url in urlHistory" :key="url">
+                <button type="button" :disabled="!available || submitting" :aria-label="`添加历史 URL：${url}`" @click="addHistoryUrl(url)">{{ url }}</button>
+              </li>
+            </ul>
+          </details>
           <p v-if="operation === 'Regex'" class="field-hint">阿里云 CDN 支持 <code>[0-9]</code>、<code>[a-z]</code>、<code>[^/]*</code> 和 <code>.*</code> 四种匹配模式。示例：<code>https://cdn.example.com/images/.*</code>。</p>
           <div v-if="submitError" role="alert" class="error-message">{{ submitError }}</div>
           <el-button type="primary" native-type="submit" :loading="submitting" :disabled="!available">提交{{ operationLabels[operation] }}</el-button>
@@ -270,6 +286,15 @@ onBeforeUnmount(() => {
 .operation-options { display: flex; flex-wrap: wrap; }
 .operation-hint { margin: -6px 0 20px; color: var(--el-text-color-regular); font-size: 14px; line-height: 1.6; }
 .input-notes { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin: -5px 0 20px; line-height: 1.6; }
+.url-history { margin-bottom: 20px; padding: 12px 14px; border: 1px solid var(--el-border-color-lighter); border-radius: 6px; font-size: 13px; }
+.url-history summary { width: fit-content; color: var(--el-color-primary); cursor: pointer; line-height: 1.6; }
+.url-history .field-hint { margin: 10px 0 8px; line-height: 1.6; }
+.url-history ul { max-height: 240px; margin: 0; padding: 0; overflow-y: auto; list-style: none; }
+.url-history li + li { border-top: 1px solid var(--el-border-color-lighter); }
+.url-history button { display: block; width: 100%; padding: 8px; border: 0; border-radius: 4px; background: transparent; color: var(--el-text-color-regular); font: inherit; text-align: left; line-height: 1.6; overflow-wrap: anywhere; cursor: pointer; }
+.url-history button:hover:not(:disabled) { background: var(--el-fill-color-light); color: var(--el-color-primary); }
+.url-history button:focus-visible, .url-history summary:focus-visible { outline: 2px solid var(--el-color-primary); outline-offset: 2px; }
+.url-history button:disabled { color: var(--el-text-color-disabled); cursor: not-allowed; }
 .error-message { margin: 12px 0; color: var(--el-color-danger); font-size: 14px; }
 .submission-result { margin-bottom: 24px; padding: 20px; border: 1px solid var(--el-color-success-light-5); border-radius: 8px; background: var(--app-surface); }
 .submission-result p { margin: 14px 0 0; font-size: 14px; }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs'
-import { test, after } from 'node:test'
+import { test, after, beforeEach } from 'node:test'
 import { setImmediate as flushPromises } from 'node:timers/promises'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { JSDOM } from 'jsdom'
@@ -21,6 +21,7 @@ const { createApp, nextTick } = await import('vue')
 const { default: ElementPlus } = await import('element-plus')
 const folder = mkdtempSync(fileURLToPath(new URL('../../node_modules/.admin-operations-test-', import.meta.url)))
 after(() => { rmSync(folder, { recursive: true, force: true }); dom.window.close() })
+beforeEach(() => { window.localStorage.clear() })
 
 function compile(source: string) {
   return ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
@@ -59,7 +60,7 @@ const result: CdnSubmission = { task_id: '12345,12346', request_id: 'submit-requ
 function taskPage(id = '12345'): CdnTaskPage {
   return { items: [{ task_id: id, object_path: 'https://cdn.example.com/a.png', object_type: 'file', status: 'Complete', process: '100%', creation_time: '2026-11-12T08:00:00Z' }], total: 1, page: 1, size: 20, request_id: 'query-request' }
 }
-type State = { input: string; operation: CdnOperation; queryTaskId: string; submitting: boolean; inputError: string; submission: CdnSubmission | null; submit: () => Promise<void>; loadTasks: (page?: number) => Promise<void>; querySubmittedTask: (id: string) => void }
+type State = { input: string; operation: CdnOperation; queryTaskId: string; submitting: boolean; inputError: string; submission: CdnSubmission | null; urlHistory: string[]; submit: () => Promise<void>; loadTasks: (page?: number) => Promise<void>; querySubmittedTask: (id: string) => void }
 async function settle() { await flushPromises(); await nextTick(); await flushPromises(); await nextTick() }
 async function mount(options: { config?: CdnConfiguration; configError?: boolean; post?: () => Promise<CdnSubmission>; tasks?: (params: Record<string, unknown>) => Promise<CdnTaskPage> } = {}) {
   const gets: { url: string; params?: Record<string, unknown> }[] = []
@@ -172,4 +173,68 @@ test('explicit API rejections show the server explanation and do not keep an ear
   assert.ok(view.container.textContent?.includes('CDN 请求频率或配额已达上限'))
   assert.equal(view.state.submission, null)
   assert.equal(view.state.input, 'https://cdn.example.com/a.png')
+})
+
+test('successful submissions retain thirty unique recent URLs across remounts and history clicks append without submitting', async (t) => {
+  let view = await mount()
+  t.after(() => view.unmount())
+  const batch = Array.from({ length: 32 }, (_, index) => `https://cdn.example.com/${index}.png`)
+  view.state.input = `  ${batch[0]}  \n${batch.join('\n')}\n\n${batch[1]}`
+  await view.state.submit()
+  assert.deepEqual(view.state.urlHistory, batch.slice(0, 30))
+
+  const newest = 'https://cdn.example.com/new.png'
+  view.state.operation = 'Preload'
+  view.state.input = `${batch[20]}\n${newest}\n${batch[20]}`
+  await view.state.submit()
+  const expected = [batch[20], newest, ...batch.slice(0, 30).filter((url) => url !== batch[20])].slice(0, 30)
+  assert.deepEqual(view.state.urlHistory, expected)
+  assert.deepEqual(JSON.parse(window.localStorage.getItem('sudothink:cdn-url-history')!), expected)
+
+  view.unmount()
+  view = await mount()
+  assert.deepEqual(view.state.urlHistory, expected)
+  const history = view.container.querySelector<HTMLDetailsElement>('.url-history')
+  assert.ok(history, '已保存的 URL 应提供历史记录入口')
+  history.open = true
+  const entry = [...history.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.trim() === newest)
+  assert.ok(entry, '历史地址应可点击回填')
+  view.state.input = 'https://cdn.example.com/draft.png'
+  await nextTick()
+  entry.click()
+  entry.click()
+  await settle()
+  assert.equal(view.state.input, `https://cdn.example.com/draft.png\n${newest}`)
+  assert.equal(view.posts.length, 0, '选择历史地址不应提交 CDN 任务')
+})
+
+test('invalid input and unsuccessful submissions leave URL history unchanged', async (t) => {
+  const saved = ['https://cdn.example.com/saved.png']
+  window.localStorage.setItem('sudothink:cdn-url-history', JSON.stringify(saved))
+  const view = await mount({ post: async () => { throw new Error('offline') } })
+  t.after(view.unmount)
+  view.state.input = 'invalid URL'
+  await view.state.submit()
+  assert.equal(view.posts.length, 0)
+  assert.deepEqual(view.state.urlHistory, saved)
+  view.state.input = 'https://cdn.example.com/failed.png'
+  await view.state.submit()
+  assert.equal(view.posts.length, 1)
+  assert.deepEqual(view.state.urlHistory, saved)
+  assert.deepEqual(JSON.parse(window.localStorage.getItem('sudothink:cdn-url-history')!), saved)
+})
+
+test('URL history records the submitted snapshot when the draft changes during a request', async (t) => {
+  let finish!: (value: CdnSubmission) => void
+  const view = await mount({ post: () => new Promise((resolve) => { finish = resolve }) })
+  t.after(view.unmount)
+  const submitted = 'https://cdn.example.com/submitted.png'
+  view.state.input = submitted
+  const pending = view.state.submit()
+  view.state.input = 'https://cdn.example.com/later-draft.png'
+  assert.deepEqual(view.state.urlHistory, [])
+  finish(result)
+  await pending
+  assert.deepEqual(view.state.urlHistory, [submitted])
+  assert.equal(view.state.input, 'https://cdn.example.com/later-draft.png')
 })
