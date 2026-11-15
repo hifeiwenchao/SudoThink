@@ -2,9 +2,30 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { musicApi, type MusicTrack } from '@/api/music'
 
+type PlaybackMode = 'sequence' | 'single' | 'random'
+const playbackModes: { value: PlaybackMode; label: string; hint: string }[] = [
+  { value: 'sequence', label: '顺序播放', hint: '按列表顺序播放，最后一首结束后停止' },
+  { value: 'single', label: '单曲循环', hint: '循环播放当前歌曲，可手动切换曲目' },
+  { value: 'random', label: '随机播放', hint: '随机切换歌曲，上一首返回刚刚播放的歌曲' },
+]
+const playbackModeKey = 'sudothink:music-play-mode'
+
+function loadPlaybackMode(): PlaybackMode {
+  try {
+    const saved = window.localStorage.getItem(playbackModeKey)
+    if (saved === 'sequence' || saved === 'single' || saved === 'random') return saved
+  } catch {
+    // Playback remains available when browser storage is blocked.
+  }
+  return 'sequence'
+}
+
 const tracks = ref<MusicTrack[]>([])
 const selectedIndex = ref(0)
 const currentTrack = computed(() => tracks.value[selectedIndex.value])
+const playbackMode = ref<PlaybackMode>(loadPlaybackMode())
+const playbackHint = computed(() => playbackModes.find(mode => mode.value === playbackMode.value)!.hint)
+const randomHistory: number[] = []
 const audio = ref<HTMLAudioElement>()
 const expanded = ref(false)
 const playing = ref(false)
@@ -75,9 +96,13 @@ function togglePlay() {
   }
 }
 
-async function selectTrack(index: number) {
+async function selectTrack(index: number, rememberRandom = true) {
   if (!tracks.value.length || index < 0 || index >= tracks.value.length) return
   if (index === selectedIndex.value) { if (!playing.value) await play(); return }
+  if (playbackMode.value === 'random' && rememberRandom) {
+    randomHistory.push(selectedIndex.value)
+    if (randomHistory.length > 100) randomHistory.shift()
+  }
   const version = ++playVersion
   audio.value?.pause()
   selectedIndex.value = index
@@ -89,20 +114,49 @@ async function selectTrack(index: number) {
   if (active && version === playVersion) await play()
 }
 
-function skip(direction: number) {
-  if (!tracks.value.length) return
-  const index = (selectedIndex.value + direction + tracks.value.length) % tracks.value.length
-  if (index === selectedIndex.value) {
-    if (audio.value) audio.value.currentTime = 0
-    currentTime.value = 0
-    void play()
-  } else {
-    void selectTrack(index)
+function restartTrack() {
+  if (audio.value) audio.value.currentTime = 0
+  currentTime.value = 0
+  void play()
+}
+
+function setPlaybackMode(mode: PlaybackMode) {
+  if (mode === playbackMode.value) return
+  playbackMode.value = mode
+  randomHistory.length = 0
+  try {
+    window.localStorage.setItem(playbackModeKey, mode)
+  } catch {
+    // Keep the selected mode for this visit if storage is unavailable.
   }
 }
 
+function skip(direction: number) {
+  if (!tracks.value.length) return
+  if (tracks.value.length === 1) { restartTrack(); return }
+  if (playbackMode.value === 'random') {
+    if (direction < 0 && randomHistory.length) {
+      void selectTrack(randomHistory.pop()!, false)
+      return
+    }
+    const candidate = Math.floor(Math.random() * (tracks.value.length - 1))
+    void selectTrack(candidate >= selectedIndex.value ? candidate + 1 : candidate)
+    return
+  }
+  void selectTrack((selectedIndex.value + direction + tracks.value.length) % tracks.value.length)
+}
+
 function ended(event: Event) {
-  if (isCurrent(event)) skip(1)
+  if (!isCurrent(event)) return
+  ++playVersion
+  playing.value = starting.value = false
+  if (playbackMode.value === 'single') {
+    restartTrack()
+  } else if (playbackMode.value === 'sequence' && selectedIndex.value === tracks.value.length - 1) {
+    audio.value?.pause()
+  } else {
+    skip(1)
+  }
 }
 
 function failed(event: Event) {
@@ -175,6 +229,9 @@ onBeforeUnmount(() => {
         <button type="button" class="music-play" :aria-label="playing || starting ? '暂停音乐' : '播放音乐'" @click="togglePlay"><svg v-if="playing || starting" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h4v14H6zm8 0h4v14h-4z" /></svg><svg v-else viewBox="0 0 24 24" aria-hidden="true"><path d="m8 4 13 8-13 8z" /></svg></button>
         <button type="button" aria-label="下一首" :disabled="tracks.length < 2" @click="skip(1)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 5h2v14h-2zM6 5v14l10-7z" /></svg></button>
       </div>
+      <div class="music-playback-modes" role="group" aria-label="播放模式">
+        <button v-for="mode in playbackModes" :key="mode.value" type="button" :aria-label="mode.label" :aria-pressed="playbackMode === mode.value" @click="setPlaybackMode(mode.value)">{{ mode.label }}</button>
+      </div>
       <div class="music-progress"><span>{{ timeLabel(currentTime) }}</span><input type="range" aria-label="播放进度" min="0" :max="duration || 1" step="0.1" :value="currentTime" :disabled="!duration" :aria-valuetext="`${timeLabel(currentTime)} / ${timeLabel(duration)}`" @input="seek" /><span>{{ timeLabel(duration) }}</span></div>
       <label class="music-volume"><span>音量</span><input type="range" aria-label="音量" min="0" max="1" step="0.05" :value="volume" @input="changeVolume" /><span>{{ Math.round(volume * 100) }}%</span></label>
       <p v-if="error" class="music-error" role="alert">{{ error }}<button type="button" @click="play">重试</button></p>
@@ -182,7 +239,7 @@ onBeforeUnmount(() => {
       <ol class="music-track-list" aria-label="音乐列表">
         <li v-for="(track, index) in tracks" :key="track.url"><button type="button" :class="{ 'is-current': index === selectedIndex }" :aria-current="index === selectedIndex ? 'true' : undefined" :aria-label="`播放 ${track.title}${track.artist ? `，${track.artist}` : ''}`" @click="selectTrack(index)"><span class="music-track-number">{{ String(index + 1).padStart(2, '0') }}</span><span class="music-track-copy"><span>{{ track.title }}</span><small v-if="track.artist">{{ track.artist }}</small></span><span v-if="index === selectedIndex && playing" class="music-playing-mark" aria-hidden="true">♫</span></button></li>
       </ol>
-      <p class="music-hint">由你开启，按列表顺序循环播放</p>
+      <p class="music-hint">{{ playbackHint }}</p>
     </div>
     <div class="music-mini">
       <button class="music-mini-play" type="button" :aria-label="playing || starting ? '暂停音乐' : '播放音乐'" @click="togglePlay"><svg v-if="playing || starting" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h4v14H6zm8 0h4v14h-4z" /></svg><svg v-else viewBox="0 0 24 24" aria-hidden="true"><path d="m8 4 13 8-13 8z" /></svg></button>
@@ -221,6 +278,10 @@ onBeforeUnmount(() => {
 .music-now-playing > span { font-size: 11px; color: var(--blog-muted); }
 .music-controls { display: flex; justify-content: center; align-items: center; gap: 22px; margin: 10px 0; }
 .music-controls .music-play { width: 42px; height: 42px; }
+.music-playback-modes { display: flex; gap: 4px; margin: 14px 0; padding: 3px; border-radius: 7px; background: var(--blog-accent-soft); }
+.music-playback-modes button { flex: 1; min-width: 0; padding: 7px 2px; border: 0; border-radius: 5px; background: transparent; color: var(--blog-muted); font-size: 11px; }
+.music-playback-modes button[aria-pressed='true'] { background: var(--blog-surface); color: var(--blog-accent); font-weight: 600; box-shadow: 0 1px 3px rgb(0 0 0 / .06); }
+.music-playback-modes button:focus-visible { outline: 2px solid var(--blog-accent); outline-offset: 1px; }
 .music-progress, .music-volume { display: flex; align-items: center; gap: 9px; color: var(--blog-muted); font: 10px var(--blog-mono); }
 .music-player input[type='range'] { min-width: 0; width: 100%; flex: 1; accent-color: var(--blog-accent); height: 20px; cursor: pointer; }
 .music-progress > span, .music-volume > span { flex-shrink: 0; }
