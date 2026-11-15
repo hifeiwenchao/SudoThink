@@ -24,7 +24,9 @@ const tracks = ref<MusicTrack[]>([])
 const selectedIndex = ref(0)
 const currentTrack = computed(() => tracks.value[selectedIndex.value])
 const playbackMode = ref<PlaybackMode>(loadPlaybackMode())
-const playbackHint = computed(() => playbackModes.find(mode => mode.value === playbackMode.value)!.hint)
+const currentPlaybackMode = computed(() => playbackModes.find(mode => mode.value === playbackMode.value)!)
+const nextPlaybackMode = computed(() => playbackModes[(playbackModes.indexOf(currentPlaybackMode.value) + 1) % playbackModes.length]!)
+const playbackModeButtonLabel = computed(() => `播放模式：${currentPlaybackMode.value.label}，点击切换为${nextPlaybackMode.value.label}`)
 const randomHistory: number[] = []
 const audio = ref<HTMLAudioElement>()
 const expanded = ref(false)
@@ -129,6 +131,10 @@ function setPlaybackMode(mode: PlaybackMode) {
   } catch {
     // Keep the selected mode for this visit if storage is unavailable.
   }
+}
+
+function cyclePlaybackMode() {
+  setPlaybackMode(nextPlaybackMode.value.value)
 }
 
 function skip(direction: number) {
@@ -239,11 +245,18 @@ onBeforeUnmount(() => {
       <ol class="music-track-list" aria-label="音乐列表">
         <li v-for="(track, index) in tracks" :key="track.url"><button type="button" :class="{ 'is-current': index === selectedIndex }" :aria-current="index === selectedIndex ? 'true' : undefined" :aria-label="`播放 ${track.title}${track.artist ? `，${track.artist}` : ''}`" @click="selectTrack(index)"><span class="music-track-number">{{ String(index + 1).padStart(2, '0') }}</span><span class="music-track-copy"><span>{{ track.title }}</span><small v-if="track.artist">{{ track.artist }}</small></span><span v-if="index === selectedIndex && playing" class="music-playing-mark" aria-hidden="true">♫</span></button></li>
       </ol>
-      <p class="music-hint">{{ playbackHint }}</p>
+      <p class="music-hint">{{ currentPlaybackMode.hint }}</p>
     </div>
     <div class="music-mini">
       <button class="music-mini-play" type="button" :aria-label="playing || starting ? '暂停音乐' : '播放音乐'" @click="togglePlay"><svg v-if="playing || starting" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h4v14H6zm8 0h4v14h-4z" /></svg><svg v-else viewBox="0 0 24 24" aria-hidden="true"><path d="m8 4 13 8-13 8z" /></svg></button>
       <button ref="expandButton" class="music-mini-info" type="button" :aria-expanded="expanded" aria-controls="music-playlist" :aria-label="expanded ? '收起音乐列表' : '展开音乐列表'" @click="toggleExpanded"><span class="music-mini-title"><span>{{ currentTrack.title }}</span><span v-if="playing" class="music-wave" aria-hidden="true"><i /><i /><i /><i /></span></span><small>{{ error ? '播放失败 · 展开重试' : playing ? '正在播放' : starting ? '正在加载…' : '听点音乐' }}</small></button>
+      <button class="music-mini-mode" type="button" :aria-label="playbackModeButtonLabel" :title="playbackModeButtonLabel" @click="cyclePlaybackMode">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path v-if="playbackMode === 'sequence'" d="M4 5h16M4 12h8M4 19h8m4-10 4 3-4 3V9Z" />
+          <template v-else-if="playbackMode === 'single'"><path d="m17 3 4 4-4 4M3 11V10a3 3 0 0 1 3-3h15M7 21l-4-4 4-4m14 0v1a3 3 0 0 1-3 3H3" /><path d="m10 11 2-1v5" /></template>
+          <path v-else d="M3 6h3c4 0 8 12 12 12h3m-4-4 4 4-4 4M3 18h3c1.5 0 3-1.7 4.5-4m3-4C15 7.7 16.5 6 18 6h3m-4-4 4 4-4 4" />
+        </svg>
+      </button>
       <button class="music-mini-next" type="button" aria-label="下一首" :disabled="tracks.length < 2" @click="skip(1)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 5h2v14h-2zM6 5v14l10-7z" /></svg></button>
     </div>
   </section>
@@ -258,6 +271,10 @@ onBeforeUnmount(() => {
 .music-mini { display: flex; align-items: center; min-height: 58px; padding: 6px 10px; gap: 10px; }
 .music-mini button, .music-controls button { display: grid; place-items: center; flex-shrink: 0; border: 0; background: transparent; border-radius: 50%; width: 36px; height: 36px; }
 .music-mini .music-mini-play, .music-controls .music-play { background: var(--blog-accent); color: var(--blog-surface); }
+.music-mini .music-mini-mode { color: var(--blog-accent); }
+.music-mini-mode svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.music-mini-mode:hover { background: var(--blog-accent-soft); }
+.music-mini-mode:focus-visible { outline: 2px solid var(--blog-accent); outline-offset: 1px; }
 .music-mini .music-mini-info { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 3px; min-width: 0; flex: 1; width: auto; height: 42px; border-radius: 4px; padding: 0; text-align: left; }
 .music-mini-info .music-mini-title { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; }
 .music-mini-title > span:first-child { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; font-weight: 600; }

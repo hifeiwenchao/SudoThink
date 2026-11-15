@@ -248,6 +248,61 @@ test('mode changes preserve playback and the selected preference survives a remo
   assert.equal(playCalls.length, 0, 'restoring a mode must not start playback')
 })
 
+test('the collapsed player cycles modes with one button without opening the list or interrupting audio', async (t) => {
+  const view = await mount()
+  t.after(view.unmount)
+  const modeButton = view.container.querySelector<HTMLButtonElement>('.music-mini-mode')
+  assert.ok(modeButton, 'the collapsed player must expose its own mode switch')
+  const sequenceLabel = '播放模式：顺序播放，点击切换为单曲循环'
+  const singleLabel = '播放模式：单曲循环，点击切换为随机播放'
+  const randomLabel = '播放模式：随机播放，点击切换为顺序播放'
+  assert.equal(modeButton.getAttribute('aria-label'), sequenceLabel)
+  assert.equal(modeButton.title, sequenceLabel)
+  await view.click(sequenceLabel)
+  assert.equal(modeButton.getAttribute('aria-label'), singleLabel)
+  assert.equal(modeButton.title, singleLabel)
+  assert.equal(playCalls.length, 0, 'mode switching must not autoplay')
+
+  await view.click('播放音乐')
+  const element = view.container.querySelector('audio')!
+  element.currentTime = 37
+  for (const [label, nextLabel, mode] of [
+    [singleLabel, randomLabel, 'random'],
+    [randomLabel, sequenceLabel, 'sequence'],
+    [sequenceLabel, singleLabel, 'single'],
+  ] as const) {
+    await view.click(label)
+    assert.equal(modeButton.getAttribute('aria-label'), nextLabel)
+    assert.equal(modeButton.title, nextLabel)
+    assert.equal(window.localStorage.getItem('sudothink:music-play-mode'), mode)
+    assert.equal(view.container.querySelector('.music-panel'), null)
+    assert.equal(view.container.querySelector('audio'), element)
+    assert.equal(element.currentTime, 37)
+    assert.equal(element.paused, false)
+    assert.equal(playCalls.length, 1)
+  }
+})
+
+test('the mini mode button stays synchronized with the expanded choices and restores its saved mode', async (t) => {
+  let view = await mount()
+  t.after(() => view.unmount())
+  await view.click('展开音乐列表')
+  await view.click('随机播放')
+  const modeButton = view.container.querySelector<HTMLButtonElement>('.music-mini-mode')!
+  assert.equal(modeButton.getAttribute('aria-label'), '播放模式：随机播放，点击切换为顺序播放')
+  await view.click('播放模式：随机播放，点击切换为顺序播放')
+  assert.ok(view.container.querySelector('.music-panel'), 'the mode button must not close the open list')
+  assert.equal(view.container.querySelector('[aria-label="顺序播放"]')?.getAttribute('aria-pressed'), 'true')
+  assert.equal(view.container.querySelector('[aria-label="随机播放"]')?.getAttribute('aria-pressed'), 'false')
+  await view.click('播放模式：顺序播放，点击切换为单曲循环')
+  assert.equal(view.container.querySelector('[aria-label="单曲循环"]')?.getAttribute('aria-pressed'), 'true')
+  view.unmount()
+  view = await mount()
+  assert.equal(view.container.querySelector('.music-mini-mode')?.getAttribute('aria-label'), '播放模式：单曲循环，点击切换为随机播放')
+  assert.equal(view.container.querySelector('.music-panel'), null)
+  assert.equal(playCalls.length, 0)
+})
+
 test('invalid or unavailable saved modes fall back safely and mode switching remains usable', async () => {
   window.localStorage.setItem('sudothink:music-play-mode', 'invalid-mode')
   const invalid = await mount()
