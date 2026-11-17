@@ -1,0 +1,45 @@
+import type { TodoInput } from '../api/todos'
+
+export interface TodoForm {
+  title: string
+  content: string
+  due_at: Date | null
+  reminder_enabled: boolean
+  reminder_email: string
+}
+
+export type TodoFormErrors = Partial<Record<'title' | 'content' | 'due_at' | 'reminder_email', string>>
+
+function validMailbox(value: string) {
+  const parts = value.split('@')
+  if (parts.length !== 2) return false
+  const [local, domain] = parts as [string, string]
+  if (!local || local.length > 64 || local.startsWith('.') || local.endsWith('.') || local.includes('..')) return false
+  if (!/^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+$/.test(local)) return false
+  const labels = domain.split('.')
+  return labels.length >= 2 && labels.every(label => /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(label))
+}
+
+export function prepareTodoInput(form: TodoForm): { input: TodoInput | null; errors: TodoFormErrors } {
+  const errors: TodoFormErrors = {}
+  const title = form.title.trim()
+  const content = form.content.trim()
+  const reminderEmail = form.reminder_email.trim()
+  if (!title) errors.title = '请填写待办标题'
+  else if (Array.from(title).length > 200) errors.title = '标题不能超过 200 个字符'
+  if (Array.from(content).length > 10000) errors.content = '内容不能超过 10000 个字符'
+  const hasDate = form.due_at !== null
+  const validDate = form.due_at instanceof Date && Number.isFinite(form.due_at.getTime())
+  if (hasDate && !validDate) errors.due_at = '请选择有效的到期时间'
+  else if (form.reminder_enabled && !validDate) errors.due_at = '启用邮件提醒时，请先设置到期时间'
+  if (form.reminder_enabled && !reminderEmail) errors.reminder_email = '请填写收件邮箱'
+  else if (/\r|\n/.test(form.reminder_email) || reminderEmail.length > 254 || (reminderEmail && !validMailbox(reminderEmail))) {
+    errors.reminder_email = '请填写有效的单个邮箱地址，不能包含姓名、多个地址或换行'
+  }
+  if (Object.keys(errors).length) return { input: null, errors }
+  return { errors, input: {
+    title, content, due_at: validDate ? form.due_at!.toISOString() : null,
+    reminder_enabled: form.reminder_enabled,
+    reminder_email: reminderEmail,
+  } }
+}

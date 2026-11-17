@@ -6,9 +6,15 @@ from app.celery_runtime import initialize_worker_resources, shutdown_worker_reso
 from app.core.config import settings
 
 
-# Delayed once jobs are published by their first trigger; beat remains available
-# for independent periodic jobs without scanning all article counters.
-BEAT_SCHEDULE: dict = {}
+# Article counters still use their first-trigger delayed jobs; only todo
+# reminders are periodically checked so edits and restarts remain recoverable.
+BEAT_SCHEDULE: dict = {
+    "due-todo-reminders": {
+        "task": "app.tasks.todos.send_due_reminders",
+        "schedule": 60.0,
+        "options": {"expires": 60},
+    },
+}
 
 celery_app = Celery("sudothink")
 celery_app.conf.update(

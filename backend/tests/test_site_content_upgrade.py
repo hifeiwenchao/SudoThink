@@ -14,6 +14,7 @@ class MySQLMetadata:
         self.capabilities = SimpleNamespace(dialect="mysql")
         self.weight = upgraded
         self.columns = {"author_id": {"COLUMN_NAME": "author_id", "IS_NULLABLE": "YES" if upgraded else "NO", "COLUMN_TYPE": "int"}}
+        self.todo_columns = {"reminder_email": {"COLUMN_NAME": "reminder_email"}} if upgraded else {}
         if upgraded:
             self.columns.update({name: {"COLUMN_NAME": name, "IS_NULLABLE": "NO", "COLUMN_TYPE": "varchar"} for name in ("nickname", "email", "ip_address", "location", "is_rejected", "user_agent")})
         self.foreign_keys = [{"CONSTRAINT_NAME": "legacy_comment_author_fk", "REFERENCED_TABLE_NAME": "users", "REFERENCED_COLUMN_NAME": "id", "DELETE_RULE": "SET NULL" if upgraded else "CASCADE", "UPDATE_RULE": "RESTRICT"}]
@@ -27,12 +28,17 @@ class MySQLMetadata:
             return self.foreign_keys
         if "TABLE_NAME = 'comments'" in sql:
             return list(self.columns.values())
+        if "TABLE_NAME = 'todos'" in sql:
+            return list(self.todo_columns.values())
         raise AssertionError(f"Unexpected metadata query: {sql}")
 
     async def execute_script(self, sql):
         self.scripts.append(sql)
         if "`categories`" in sql:
             self.weight = True
+            return
+        if "`todos`" in sql:
+            self.todo_columns["reminder_email"] = {"COLUMN_NAME": "reminder_email"}
             return
         for name in ("nickname", "email", "ip_address", "location"):
             if f"ADD COLUMN `{name}`" in sql:
@@ -73,16 +79,17 @@ class SiteContentUpgradeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(connection.columns["author_id"]["IS_NULLABLE"], "YES")
         self.assertEqual(connection.foreign_keys[0]["DELETE_RULE"], "SET NULL")
         self.assertEqual(connection.records, [{"id": 7, "author_id": 13, "content": "Existing comment", "is_rejected": False, "user_agent": ""}])
-        self.assertEqual(len(connection.scripts), 2)
+        self.assertEqual(len(connection.scripts), 3)
         comment_sql = connection.scripts[1]
         self.assertIn("DROP FOREIGN KEY `legacy_comment_author_fk`", comment_sql)
         self.assertNotIn("ADD CONSTRAINT `legacy_comment_author_fk`", comment_sql)
         self.assertRegex(comment_sql, r"ADD CONSTRAINT `fk_comments_guest_[0-9a-f]{16}`")
         self.assertIn("ON DELETE SET NULL ON UPDATE RESTRICT", comment_sql)
+        self.assertIn("ADD COLUMN `reminder_email` VARCHAR(254) NOT NULL DEFAULT ''", connection.scripts[2])
         for unsafe in ("DROP TABLE", "DELETE FROM", "TRUNCATE", "UPDATE `"):
             self.assertNotIn(unsafe, comment_sql.upper())
         await self.upgrade_with(connection)
-        self.assertEqual(len(connection.scripts), 2)
+        self.assertEqual(len(connection.scripts), 3)
 
     async def test_partially_upgraded_table_only_receives_missing_columns(self):
         connection = MySQLMetadata(upgraded=True)

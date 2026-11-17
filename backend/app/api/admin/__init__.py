@@ -11,6 +11,7 @@ from app.api.admin.music import bp as music_bp
 from app.api.admin.uploads import bp as uploads_bp
 from app.api.admin.operations import bp as operations_bp
 from app.api.admin.request_logs import bp as request_logs_bp
+from app.api.admin.todos import bp as todos_bp
 
 
 bp = Blueprint.group(
@@ -24,6 +25,7 @@ bp = Blueprint.group(
     uploads_bp,
     operations_bp,
     request_logs_bp,
+    todos_bp,
     url_prefix="/admin",
 )
 

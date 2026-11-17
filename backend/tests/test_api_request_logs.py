@@ -144,6 +144,23 @@ class ApiRequestLogTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(record.body_params["username"], "author")
         self.assertEqual(record.body_params["settings"][0]["refreshToken"], "[REDACTED]")
 
+    async def test_private_todo_contents_and_search_are_not_exposed_in_shared_admin_logs(self):
+        result = await self.request("/api/admin/todos", method="POST", user=self.admin, payload={
+            "title": "private-meeting-title", "content": "private-meeting-notes",
+            "due_at": "2026-11-17T12:00:00+08:00", "reminder_enabled": False,
+        })
+        self.assertEqual(result.status, 200)
+        await self.request("/api/admin/todos?q=private-meeting-search", user=self.admin)
+        records = await self.model().all().filter(path="/api/admin/todos")
+        self.assertEqual(len(records), 2)
+        saved = json.dumps([
+            [record.url, record.query_params, record.body_params, record.path_params]
+            for record in records
+        ])
+        for value in ("private-meeting-title", "private-meeting-notes", "private-meeting-search"):
+            self.assertNotIn(value, saved)
+        self.assertIn("private todo", saved)
+
     async def test_failed_and_unmatched_api_requests_are_recorded(self):
         for target, kwargs, expected in (
             ("/api/not-a-route?token=missing-secret", {}, 404),

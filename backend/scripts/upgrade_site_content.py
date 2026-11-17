@@ -42,7 +42,7 @@ async def upgrade() -> None:
         await upgrade_site_content_schema()
     finally:
         await Tortoise.close_connections()
-    print("分类权重、关于我、打赏与音乐设置、评论审核与 API 请求记录结构升级完成，现有数据及阅读数已保留")
+    print("分类权重、关于我、打赏与音乐设置、待办事项、评论审核与 API 请求记录结构升级完成，现有数据及阅读数已保留")
 
 
 if __name__ == "__main__":

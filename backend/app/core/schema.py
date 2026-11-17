@@ -75,11 +75,25 @@ async def _upgrade_guest_comments(connection) -> None:
         await connection.execute_script("ALTER TABLE `comments` " + ", ".join(changes))
 
 
+async def _upgrade_todos(connection) -> None:
+    """Add the per-todo reminder mailbox to databases created before reminders."""
+    columns = await connection.execute_query_dict(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS "
+        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'todos' "
+        "AND COLUMN_NAME = 'reminder_email'"
+    )
+    if not columns:
+        await connection.execute_script(
+            "ALTER TABLE `todos` ADD COLUMN `reminder_email` VARCHAR(254) NOT NULL DEFAULT '' "
+            "COMMENT '提醒收件邮箱'"
+        )
+
+
 async def upgrade_site_content_schema() -> None:
     """Create missing tables and upgrade legacy columns without replacing data.
 
     ``generate_schemas(safe=True)`` creates AboutPage, DonationSettings,
-    MusicSettings and ApiRequestLog tables, but does not alter an existing
+    MusicSettings, Todo and ApiRequestLog tables, but does not alter an existing
     categories table. Check MySQL metadata
     before adding category weights, guest comment metadata, and rejection flags.
     Existing approvals remain intact; unapproved comments start as pending.
@@ -102,3 +116,4 @@ async def upgrade_site_content_schema() -> None:
             "COMMENT '排序权重，越大越靠前'"
         )
     await _upgrade_guest_comments(connection)
+    await _upgrade_todos(connection)

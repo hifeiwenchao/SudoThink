@@ -100,7 +100,7 @@ CELERY_WORKER_CONCURRENCY=2
 
 使用已创建的非 `guest` 用户，并确认该用户对目标 vhost 拥有 configure、write、read 权限。`RABBITMQ_VHOST=/` 使用默认 vhost，也可以填写已创建并授权的专用 vhost。用户名、密码和 vhost 填原始值，后端会自动编码特殊字符。项目使用 `sudothink` 任务队列和独立的控制交换机，避免混用默认 `celery` 队列。
 
-同一套周期计划只运行一个 beat；Compose 的 `celerybeat-state` 命名卷保留其状态。当前 `BEAT_SCHEDULE` 为空，阅读数写回由访问触发的延迟任务完成，不依赖 beat。Windows 本地 worker 可添加 `--pool=solo`。
+同一套周期计划只运行一个 beat；Compose 的 `celerybeat-state` 命名卷保留其状态。beat 每分钟检查待办邮件提醒；阅读数写回由访问触发的延迟任务完成，不依赖 beat。Windows 本地 worker 可添加 `--pool=solo`。
 
 更新任务代码、依赖或 RabbitMQ/Celery 配置后，重建 backend、worker、beat；worker 日志出现 `ready` 才表示已连接 broker 并可消费任务。诊断命令：
 
@@ -108,6 +108,29 @@ CELERY_WORKER_CONCURRENCY=2
 docker compose exec backend celery -A app.celery_app:celery_app call app.tasks.diagnostics.ping
 docker compose logs --tail=20 worker
 ```
+
+## 待办邮件提醒
+
+在管理后台“待办事项”新增事项、设置截止时间并打开邮件提醒。发送使用 SMTP，由 worker 执行，需同时运行 RabbitMQ、worker 和 beat。默认每分钟检查一次；服务恢复后会继续处理已到期、未完成的提醒。
+
+腾讯企业邮箱可使用以下配置，先在邮箱安全设置中允许 SMTP 客户端登录；账号和密码按企业邮箱实际要求填写，启用客户端专用密码时使用专用密码：
+
+```dotenv
+SMTP_HOST=smtp.exmail.qq.com
+SMTP_PORT=465
+SMTP_SECURITY=ssl
+SMTP_USERNAME=notify@example.com
+SMTP_PASSWORD=replace-with-mail-client-password
+SMTP_FROM_EMAIL=
+SMTP_FROM_NAME=SudoThink
+SMTP_TIMEOUT_SECONDS=15
+```
+
+`SMTP_FROM_EMAIL` 留空时沿用登录邮箱。收件邮箱在管理后台编辑每条待办时填写，不配置统一收件地址。`SMTP_SECURITY` 支持 `ssl` 或强制 `starttls`（通常使用 587 端口），均校验服务器证书。服务器需允许访问邮件服务的出站端口。
+
+未填写完整 SMTP 配置时可以管理待办，但不会发送或消耗重试次数；没有填写收件邮箱的旧待办也会等待补充邮箱。配置完成后，列表中的提示会消失；创建一个填写了收件邮箱且即将到期的测试事项，检查对应收件箱和列表的“已发送”状态，可验证实际连接与认证。配置检查本身不连接 SMTP。
+
+首次安装使用 `init_db.py`；已有安装先执行 `upgrade_site_content.py` 创建待办表，再启动新版服务。Docker 修改 `.env` 后执行 `docker compose up -d --force-recreate backend worker beat`；直接本地运行时重启后端、worker 和 beat。提醒状态查看与操作见[功能说明](./features.md#待办事项)。
 
 ## ICP 备案信息
 

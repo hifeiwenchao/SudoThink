@@ -2,7 +2,7 @@
 
 一个前后端分离的博客系统，提供公开站点和独立域名的管理后台。
 
-- 文章、分类、标签、“关于我”、访客评论审核、文章打赏与网站音乐播放。
+- 文章、分类、标签、“关于我”、访客评论审核、文章打赏、网站音乐播放与管理员待办邮件提醒。
 - 富文本创作、OSS 图片/视频/音频直传、CDN 刷新与预热、API 请求记录查询。
 - 浅色/深色/系统外观，以及时间戳、二维码、JSON、cron 等浏览器本地工具。
 
@@ -190,7 +190,7 @@ mkdir -p data
 celery -A app.celery_app:celery_app beat --loglevel=INFO --schedule=data/celerybeat-schedule
 ```
 
-前端默认 `http://localhost:8100`，Vite 代理 `/api` 到 `http://localhost:8000`。beat 当前无内置周期计划；阅读数延迟写回需要 Redis、RabbitMQ 与 worker。
+前端默认 `http://localhost:8100`，Vite 代理 `/api` 到 `http://localhost:8000`。阅读数延迟写回需要 Redis、RabbitMQ 与 worker；待办邮件提醒还需运行 beat，并按[邮件配置说明](./docs/deployment-reference.md#待办邮件提醒)填写 SMTP 配置。
 
 本地调试管理后台时，将 `site.ts` 的 `ADMIN_SITE_HOST` 改为 `admin.sudothink.test`，`PUBLIC_SITE_URL` 改为 `http://sudothink.test:8100/`；在 [vite.config.ts](./frontend/vite.config.ts) 的 `server.allowedHosts` 加入两个本地域名并重启 Vite，在 `/etc/hosts` 加入：
 

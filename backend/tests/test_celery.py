@@ -63,7 +63,16 @@ class CeleryTests(unittest.TestCase):
 
     def test_article_views_use_delayed_once_jobs_without_a_global_beat_scan(self):
         app = self.celery_app()
-        self.assertEqual(app.conf.beat_schedule, {})
+        self.assertFalse(any("article_views" in entry["task"] for entry in app.conf.beat_schedule.values()))
+
+    def test_beat_checks_due_todos_with_a_discovered_worker_task(self):
+        app = self.celery_app()
+        app.loader.import_default_modules()
+        entries = [entry for entry in app.conf.beat_schedule.values()
+                   if entry["task"] == "app.tasks.todos.send_due_reminders"]
+        self.assertEqual(len(entries), 1, "Due reminders need a beat schedule")
+        self.assertLessEqual(entries[0]["schedule"], 60)
+        self.assertIn(entries[0]["task"], app.tasks)
 
     def test_delayed_wrapper_is_discovered_with_worker_loss_protection(self):
         app = self.celery_app()
@@ -120,6 +129,7 @@ assert not {'app.server', 'app.core.redis', 'app.models', 'sanic', 'tortoise'} &
 assert celery_app.tasks['app.tasks.diagnostics.ping'].apply().get() == 'pong'
 assert 'app.tasks.delayed.execute_once' in celery_app.tasks
 assert 'app.tasks.article_views.persist_article_views' in celery_app.tasks
+assert 'app.tasks.todos.send_due_reminders' in celery_app.tasks
 """
         result = subprocess.run(
             [sys.executable, "-c", code], capture_output=True, text=True, check=False

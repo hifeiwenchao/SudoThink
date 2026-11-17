@@ -69,6 +69,16 @@ class Settings:
     CELERY_TIMEZONE: str = os.getenv("CELERY_TIMEZONE", "Asia/Shanghai").strip() or "Asia/Shanghai"
     CELERY_WORKER_CONCURRENCY: int = _positive_int(os.getenv("CELERY_WORKER_CONCURRENCY"), 2)
 
+    # SMTP reminders; Tencent Exmail defaults, credentials stay on the backend.
+    SMTP_HOST: str = os.getenv("SMTP_HOST", "smtp.exmail.qq.com").strip()
+    SMTP_PORT: int = _int(os.getenv("SMTP_PORT"), 465)
+    SMTP_SECURITY: str = os.getenv("SMTP_SECURITY", "ssl").strip().lower()
+    SMTP_USERNAME: str = os.getenv("SMTP_USERNAME", "").strip()
+    SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
+    SMTP_FROM_EMAIL: str = os.getenv("SMTP_FROM_EMAIL", "").strip()
+    SMTP_FROM_NAME: str = os.getenv("SMTP_FROM_NAME", "SudoThink").strip()
+    SMTP_TIMEOUT_SECONDS: int = _int(os.getenv("SMTP_TIMEOUT_SECONDS"), 15)
+
     # CORS
     CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "*")
 

@@ -122,6 +122,14 @@ def _safe_parameters(request):
     sanitizer = _Sanitizer()
     # Keep matched route params first: aid must survive a large query/body for view accounting.
     path_params = sanitizer.clean(request.match_info or {})
+    # Operations logs are shared by administrators, while todos belong to one
+    # administrator. Do not copy private content or searches into that shared log.
+    if request.path.rstrip("/") == "/api/admin/todos" or request.path.startswith("/api/admin/todos/"):
+        return (
+            {"_omitted": "private todo query"} if request.query_string else {},
+            path_params,
+            {"_omitted": "private todo body"} if request.body else None,
+        )
     query_params = sanitizer.clean(_query_parameters(request.query_string))
     body_params = sanitizer.clean(_body_parameters(request))
     parameters = [query_params, path_params, body_params]
