@@ -1,4 +1,4 @@
-"""Database-backed single reminders, with conditional claims and restart recovery."""
+"""Database-backed calendar reminders, with conditional claims and restart recovery."""
 from __future__ import annotations
 
 import asyncio
@@ -11,6 +11,7 @@ from tortoise.expressions import Q
 
 from app.core.config import settings
 from app.core.mail import MailDeliveryError, send_mail, smtp_ready, validate_recipient
+from app.core.todo_recurrence import next_reminder_at
 from app.models.todo import Todo
 
 
@@ -24,7 +25,7 @@ def _ready(now: datetime) -> Q:
     return Q(
         Q(reminder_status="pending", reminder_next_attempt_at__lte=now)
         | Q(reminder_status="sending", reminder_claim_until__lte=now),
-        is_completed=False, reminder_enabled=True, due_at__lte=now,
+        is_completed=False, reminder_enabled=True, reminder_next_run_at__lte=now,
     ) & ~Q(reminder_email="")
 
 
@@ -56,11 +57,11 @@ async def claim_reminder(todo_id: int, *, now: datetime | None = None) -> tuple[
 
 def _message(todo: Todo, config) -> tuple[str, str]:
     try:
-        display_zone = ZoneInfo(config.CELERY_TIMEZONE)
+        display_zone = ZoneInfo(todo.reminder_timezone)
     except (ZoneInfoNotFoundError, AttributeError):
         display_zone = ZoneInfo("Asia/Shanghai")
     title = " ".join(todo.title.splitlines())
-    due = todo.due_at.astimezone(display_zone).strftime("%Y-%m-%d %H:%M %Z")
+    due = todo.reminder_next_run_at.astimezone(display_zone).strftime("%Y-%m-%d %H:%M %Z")
     return (
         f"[SudoThink] 待办提醒：{title}",
         f"你的待办事项已到期。\n\n事项：{title}\n到期时间：{due}\n\n"
@@ -73,6 +74,7 @@ async def deliver_reminder(
 ) -> str:
     """Recheck the claim before SMTP and never overwrite a newer edit with an old result."""
     config = config or settings
+    supplied_now = now
     now = now or datetime.now(timezone.utc)
     claim = dict(
         id=todo_id, reminder_revision=revision,
@@ -80,7 +82,7 @@ async def deliver_reminder(
     )
     todo = await Todo.filter(
         **claim, is_completed=False, reminder_enabled=True,
-        due_at__lte=now, reminder_claim_until__gt=now,
+        reminder_next_run_at__lte=now, reminder_claim_until__gt=now,
     ).prefetch_related("owner").first()
     if todo is None:
         return "skipped"
@@ -88,7 +90,7 @@ async def deliver_reminder(
         await Todo.filter(**claim).update(
             reminder_status="disabled", reminder_enabled=False,
             reminder_claim_token="", reminder_claim_until=None,
-            reminder_next_attempt_at=None, updated_at=now,
+            reminder_next_attempt_at=None, reminder_next_run_at=None, updated_at=now,
         )
         return "skipped"
     try:
@@ -109,11 +111,19 @@ async def deliver_reminder(
         if changed:
             logger.warning("Todo reminder %s delivery failed (attempt %s)", todo_id, todo.reminder_attempts)
         return "failed" if changed else "skipped"
-    changed = await Todo.filter(**claim).update(
-        reminder_status="sent", reminder_sent_at=now, reminder_error="",
-        reminder_claim_token="", reminder_claim_until=None,
-        reminder_next_attempt_at=None, updated_at=now,
+    finished = supplied_now or datetime.now(timezone.utc)
+    next_run = next_reminder_at(
+        todo.due_at, todo.reminder_repeat, todo.reminder_timezone,
+        after=max(finished, todo.reminder_next_run_at),
     )
+    changes = dict(
+        reminder_status="pending" if next_run else "sent", reminder_sent_at=finished, reminder_error="",
+        reminder_claim_token="", reminder_claim_until=None,
+        reminder_next_run_at=next_run, reminder_next_attempt_at=next_run, updated_at=finished,
+    )
+    if next_run:
+        changes["reminder_attempts"] = 0
+    changed = await Todo.filter(**claim).update(**changes)
     return "sent" if changed else "skipped"
 
 
@@ -134,6 +144,6 @@ async def process_due_reminders(*, now: datetime | None = None, config=None) -> 
             outcome["skipped"] += 1
             continue
         revision, token = claimed
-        result = await deliver_reminder(todo_id, revision, token, now=current, config=config)
+        result = await deliver_reminder(todo_id, revision, token, now=now, config=config)
         outcome[result] += 1
     return outcome

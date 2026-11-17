@@ -2,6 +2,7 @@ import http from './http'
 
 export type TodoReminderStatus = 'disabled' | 'pending' | 'sending' | 'sent' | 'failed'
 export type TodoFilter = 'all' | 'pending' | 'completed' | 'overdue'
+export type TodoRepeat = 'once' | 'daily' | 'monthly' | 'yearly'
 
 export interface Todo {
   id: number
@@ -11,6 +12,9 @@ export interface Todo {
   is_completed: boolean
   reminder_enabled: boolean
   reminder_email: string
+  reminder_repeat: TodoRepeat
+  reminder_timezone: string
+  reminder_next_run_at: string | null
   reminder_status: TodoReminderStatus
   reminder_sent_at: string | null
   reminder_attempts: number
@@ -25,6 +29,8 @@ export interface TodoInput {
   due_at: string | null
   reminder_enabled: boolean
   reminder_email: string
+  reminder_repeat: TodoRepeat
+  reminder_timezone: string
 }
 
 export interface TodoPage {

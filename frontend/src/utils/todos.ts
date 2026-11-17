@@ -1,4 +1,4 @@
-import type { TodoInput } from '../api/todos'
+import type { TodoInput, TodoRepeat } from '../api/todos'
 
 export interface TodoForm {
   title: string
@@ -6,9 +6,15 @@ export interface TodoForm {
   due_at: Date | null
   reminder_enabled: boolean
   reminder_email: string
+  reminder_repeat: TodoRepeat
+  reminder_timezone: string
 }
 
-export type TodoFormErrors = Partial<Record<'title' | 'content' | 'due_at' | 'reminder_email', string>>
+export type TodoFormErrors = Partial<Record<'title' | 'content' | 'due_at' | 'reminder_email' | 'reminder_repeat' | 'reminder_timezone', string>>
+
+export function deviceTimezone() {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai'
+}
 
 function validMailbox(value: string) {
   const parts = value.split('@')
@@ -36,10 +42,19 @@ export function prepareTodoInput(form: TodoForm): { input: TodoInput | null; err
   else if (/\r|\n/.test(form.reminder_email) || reminderEmail.length > 254 || (reminderEmail && !validMailbox(reminderEmail))) {
     errors.reminder_email = '请填写有效的单个邮箱地址，不能包含姓名、多个地址或换行'
   }
+  if (!['once', 'daily', 'monthly', 'yearly'].includes(form.reminder_repeat)) errors.reminder_repeat = '请选择有效的重复频率'
+  try {
+    if (!form.reminder_timezone || form.reminder_timezone.length > 64) throw new Error('invalid timezone')
+    new Intl.DateTimeFormat('zh-CN', { timeZone: form.reminder_timezone }).format()
+  } catch {
+    errors.reminder_timezone = '提醒时区无效，请重新设置提醒时间'
+  }
   if (Object.keys(errors).length) return { input: null, errors }
   return { errors, input: {
     title, content, due_at: validDate ? form.due_at!.toISOString() : null,
     reminder_enabled: form.reminder_enabled,
     reminder_email: reminderEmail,
+    reminder_repeat: form.reminder_repeat,
+    reminder_timezone: form.reminder_timezone,
   } }
 }

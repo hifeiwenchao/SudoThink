@@ -59,12 +59,14 @@ class TodoReminderTests(unittest.IsolatedAsyncioTestCase):
             await Tortoise.close_connections()
 
     async def create(self, **overrides):
-        return await self.Todo.create(**(dict(
+        values = dict(
             owner=self.owner, title="续费提醒", content="给域名续费。",
             reminder_email="reminder@example.com",
             due_at=NOW, reminder_enabled=True, reminder_status="pending",
             reminder_next_attempt_at=NOW,
-        ) | overrides))
+        ) | overrides
+        values.setdefault("reminder_next_run_at", values["due_at"])
+        return await self.Todo.create(**values)
 
     async def scan(self, now=NOW):
         return await self.reminders.process_due_reminders(now=now, config=self.config)
@@ -228,6 +230,89 @@ class TodoReminderTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((todo.reminder_status, todo.reminder_attempts), ("failed", 3))
         self.assertIsNone(todo.reminder_claim_until)
         self.assertEqual(self.messages, [])
+
+    async def test_recurring_success_rearms_next_day_and_resets_attempt_budget(self):
+        todo = await self.create(reminder_repeat="daily", reminder_timezone="Asia/Shanghai")
+        await self.scan()
+        await todo.refresh_from_db()
+        self.assertEqual(todo.reminder_status, "pending")
+        self.assertEqual(todo.reminder_attempts, 0)
+        self.assertEqual(todo.reminder_sent_at, NOW)
+        self.assertEqual(todo.reminder_next_run_at, NOW + timedelta(days=1))
+        self.assertEqual(todo.reminder_next_attempt_at, NOW + timedelta(days=1))
+        self.assertEqual(todo.due_at, NOW)
+        await self.scan(NOW + timedelta(hours=23))
+        self.assertEqual(len(self.messages), 1)
+        await self.scan(NOW + timedelta(days=1))
+        await todo.refresh_from_db()
+        self.assertEqual(todo.reminder_next_run_at, NOW + timedelta(days=2))
+        self.assertEqual(len(self.messages), 2)
+        self.assertIn("2026-11-18 12:00", self.messages[1][1])
+
+    async def test_restart_catches_up_once_instead_of_sending_all_missed_occurrences(self):
+        todo = await self.create(reminder_repeat="daily")
+        later = NOW + timedelta(days=6, minutes=5)
+        await self.scan(later)
+        await self.scan(later + timedelta(minutes=1))
+        await todo.refresh_from_db()
+        self.assertEqual(len(self.messages), 1)
+        self.assertEqual(todo.reminder_next_run_at, NOW + timedelta(days=7))
+
+    async def test_retry_does_not_advance_the_scheduled_occurrence_until_success(self):
+        anchor = datetime.fromisoformat("2026-01-31T09:15:00+08:00")
+        todo = await self.create(
+            due_at=anchor, reminder_repeat="monthly", reminder_next_attempt_at=anchor,
+        )
+        with patch.object(self.reminders, "send_mail", side_effect=MailDeliveryError("发送失败")):
+            await self.scan(anchor)
+        await todo.refresh_from_db()
+        self.assertEqual(todo.reminder_next_run_at, anchor)
+        self.assertEqual(todo.reminder_attempts, 1)
+        await self.scan(anchor + timedelta(minutes=1))
+        await todo.refresh_from_db()
+        self.assertEqual(todo.reminder_next_run_at, datetime.fromisoformat("2026-02-28T09:15:00+08:00"))
+        self.assertEqual(todo.reminder_attempts, 0)
+        await self.scan(datetime.fromisoformat("2026-02-28T09:15:00+08:00"))
+        await todo.refresh_from_db()
+        self.assertEqual(todo.reminder_next_run_at, datetime.fromisoformat("2026-03-31T09:15:00+08:00"))
+
+    async def test_recurring_stale_delivery_cannot_advance_an_edited_schedule(self):
+        todo = await self.create(reminder_repeat="daily")
+        revision, token = await self.reminders.claim_reminder(todo.id, now=NOW)
+        new_run = NOW + timedelta(hours=2)
+
+        async def edit_during_send(*args, **kwargs):
+            await self.Todo.filter(id=todo.id).update(
+                reminder_next_run_at=new_run, reminder_next_attempt_at=new_run,
+                reminder_revision=revision + 1, reminder_claim_token="", reminder_status="pending",
+            )
+
+        with patch.object(self.reminders.asyncio, "to_thread", side_effect=edit_during_send):
+            await self.reminders.deliver_reminder(todo.id, revision, token, now=NOW, config=self.config)
+        await todo.refresh_from_db()
+        self.assertEqual(todo.reminder_next_run_at, new_run)
+        self.assertIsNone(todo.reminder_sent_at)
+
+    async def test_future_occurrence_is_not_sent_when_original_anchor_is_past(self):
+        todo = await self.create(
+            due_at=NOW - timedelta(days=1), reminder_repeat="daily",
+            reminder_next_run_at=NOW + timedelta(days=1), reminder_next_attempt_at=NOW,
+        )
+        await self.scan()
+        self.assertEqual(self.messages, [])
+        await todo.refresh_from_db()
+        self.assertEqual(todo.reminder_attempts, 0)
+
+    async def test_next_occurrence_uses_delivery_finish_time_when_smtp_crosses_a_period(self):
+        todo = await self.create(reminder_repeat="daily")
+        revision, token = await self.reminders.claim_reminder(todo.id, now=NOW)
+        finished = NOW + timedelta(days=1, minutes=1)
+        with patch.object(self.reminders, "datetime") as clock:
+            clock.now.side_effect = [NOW, finished]
+            await self.reminders.deliver_reminder(todo.id, revision, token, config=self.config)
+        await todo.refresh_from_db()
+        self.assertEqual(todo.reminder_sent_at, finished)
+        self.assertEqual(todo.reminder_next_run_at, NOW + timedelta(days=2))
 
 
 class ShanghaiNaiveStorageReminderTests(TodoReminderTests):

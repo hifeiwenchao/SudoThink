@@ -46,6 +46,7 @@ const todo = (): Todo => ({
   id: 1, title: '证书续期', content: '检查证书', due_at: '2026-11-18T01:30:00Z',
   is_completed: false, reminder_enabled: true, reminder_status: 'pending', reminder_sent_at: null,
   reminder_email: 'owner@example.com',
+  reminder_repeat: 'once', reminder_timezone: 'Asia/Shanghai', reminder_next_run_at: '2026-11-18T01:30:00Z',
   reminder_attempts: 0, reminder_error: '', created_at: '2026-11-17T00:00:00Z', updated_at: '2026-11-17T00:00:00Z',
 })
 type State = {
@@ -126,7 +127,7 @@ test('failed saves preserve the editor and concurrent saves do not create duplic
   failing = false
   await view.state.save()
   assert.equal(view.state.dialogVisible, false)
-  assert.deepEqual(view.saves.at(-1), { title: '新提醒', content: '内容', due_at: '2026-11-18T01:30:00.000Z', reminder_enabled: true, reminder_email: 'friend@example.com' })
+  assert.deepEqual(view.saves.at(-1), { title: '新提醒', content: '内容', due_at: '2026-11-18T01:30:00.000Z', reminder_enabled: true, reminder_email: 'friend@example.com', reminder_repeat: 'once', reminder_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone })
 })
 
 test('completion updates the list and reopening keeps email reminders off', async t => {
@@ -195,4 +196,41 @@ test('turning reminders off keeps an invalid recipient visible so its validation
   assert.equal(view.saves[0]?.reminder_enabled, false)
   assert.equal(view.saves[0]?.reminder_email, '')
   assert.equal(view.state.dialogVisible, false)
+})
+
+test('recurring reminders show their next occurrence instead of an overdue original date', async t => {
+  const recurring = {
+    ...todo(), due_at: '2020-01-31T01:30:00Z', reminder_repeat: 'monthly',
+    reminder_timezone: 'Asia/Shanghai', reminder_next_run_at: '2099-02-28T01:30:00Z',
+    reminder_sent_at: '2026-10-31T01:30:00Z',
+  } as Todo
+  const view = await mount({ list: async () => ({ items: [recurring], total: 1, page: 1, size: 10, email_configured: true }) })
+  t.after(view.unmount)
+  assert.ok(view.container.textContent?.includes('每月 31 日 09:30'))
+  assert.ok(view.container.textContent?.includes('下次'))
+  assert.ok(view.container.textContent?.includes('最近发送'))
+  assert.equal(view.container.querySelector('.overdue-label'), null)
+  view.state.openEdit(recurring)
+  await settle()
+  assert.ok(document.body.querySelector('input[aria-label="提醒重复频率"]'))
+  await view.state.save()
+  assert.equal(view.updates[0]?.input.reminder_repeat, 'monthly')
+  assert.equal(view.updates[0]?.input.reminder_timezone, 'Asia/Shanghai')
+})
+
+test('changing a recurring schedule uses the device time zone and a new todo starts with a single reminder', async t => {
+  const view = await mount()
+  t.after(view.unmount)
+  view.state.openCreate()
+  assert.equal(view.state.form.reminder_repeat, 'once')
+  assert.equal(view.state.form.reminder_timezone, Intl.DateTimeFormat().resolvedOptions().timeZone)
+  const item = { ...todo(), reminder_repeat: 'yearly', reminder_timezone: 'America/New_York' } as Todo
+  view.state.openEdit(item)
+  view.state.form.content = '只修改说明'
+  await view.state.save()
+  assert.equal(view.updates[0]?.input.reminder_timezone, 'America/New_York')
+  view.state.openEdit(item)
+  view.state.form.due_at = new Date('2027-02-28T10:00:00Z')
+  await view.state.save()
+  assert.equal(view.updates[1]?.input.reminder_timezone, Intl.DateTimeFormat().resolvedOptions().timeZone)
 })

@@ -14,7 +14,9 @@
 
 ## 待办提醒
 
-管理员私有待办保存在 `todos` 表，接口为 `/api/admin/todos` 的列表、创建、修改、删除及 `/<id>/completion`、`/<id>/retry` 操作。前端提交带时区的 ISO 时间，数据库沿用项目时区设置；邮件以 `CELERY_TIMEZONE` 展示截止时间。
+管理员私有待办保存在 `todos` 表，接口为 `/api/admin/todos` 的列表、创建、修改、删除及 `/<id>/completion`、`/<id>/retry` 操作。前端提交带时区的 ISO 时间，数据库沿用项目时区设置。`reminder_repeat` 支持 `once/daily/monthly/yearly`，`reminder_timezone` 保存 IANA 时区；邮件按保存的时区展示本次提醒时间。
+
+`due_at` 保留首次日期作为日历基准，`reminder_next_run_at` 保存本次计划时间，`reminder_next_attempt_at` 独立控制发送重试。发送成功后按原始日期推进到当前时间之后的下一次，清零本轮尝试次数；遗漏的多个周期只补发一次。短月取月末，后续恢复原始日；夏令时跳过的时刻向后平移，重复时刻只取第一次。原有单次提醒通过升级脚本补齐计划时间，已发送的单次提醒不会重新发送。
 
 `app.tasks.todos.send_due_reminders` 每分钟处理最多 20 条到期提醒。数据库条件更新原子领取，租约为 5 分钟；版本及令牌防止重复领取、旧发送结果覆盖后续编辑。发送前重新检查事项、提醒开关和收件邮箱。没有 SMTP 配置或未填写收件邮箱时不消耗尝试次数。
 

@@ -1,6 +1,8 @@
 """待办完整表单与完成状态校验。"""
 import unicodedata
 from datetime import datetime
+from typing import Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -15,6 +17,17 @@ class TodoIn(BaseModel):
     due_at: AwareDatetime | None
     reminder_enabled: bool = Field(strict=True)
     reminder_email: str = Field(default="", strict=True, max_length=254)
+    reminder_repeat: Literal["once", "daily", "monthly", "yearly"] = "once"
+    reminder_timezone: str = Field(default="Asia/Shanghai", strict=True, min_length=1, max_length=64)
+
+    @field_validator("reminder_timezone")
+    @classmethod
+    def valid_timezone(cls, value):
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise ValueError("提醒时区必须为有效的 IANA 时区") from None
+        return value
 
     @field_validator("title", "content", mode="before")
     @classmethod

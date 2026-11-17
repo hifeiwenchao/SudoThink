@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { todosApi, type Todo, type TodoFilter } from '@/api/todos'
-import { prepareTodoInput, type TodoForm, type TodoFormErrors } from '@/utils/todos'
+import { deviceTimezone, prepareTodoInput, type TodoForm, type TodoFormErrors } from '@/utils/todos'
 
 const list = ref<Todo[]>([])
 const total = ref(0)
@@ -23,7 +23,12 @@ const editingId = ref<number | null>(null)
 const editingCompleted = ref(false)
 const saving = ref(false)
 const saveError = ref('')
-const form = reactive<TodoForm>({ title: '', content: '', due_at: null, reminder_enabled: false, reminder_email: '' })
+const localTimezone = deviceTimezone()
+const editingSchedule = ref<{ due: number | null; repeat: Todo['reminder_repeat'] } | null>(null)
+const form = reactive<TodoForm>({ title: '', content: '', due_at: null, reminder_enabled: false, reminder_email: '', reminder_repeat: 'once', reminder_timezone: localTimezone })
+const scheduleTimezone = computed(() => editingSchedule.value
+  && editingSchedule.value.due === (form.due_at?.getTime() ?? null)
+  && editingSchedule.value.repeat === form.reminder_repeat ? form.reminder_timezone : localTimezone)
 const errors = reactive<TodoFormErrors>({})
 const now = ref(Date.now())
 const busy = computed(() => loading.value || saving.value || operationId.value !== null)
@@ -87,6 +92,8 @@ function clearErrors() {
   delete errors.content
   delete errors.due_at
   delete errors.reminder_email
+  delete errors.reminder_repeat
+  delete errors.reminder_timezone
   saveError.value = ''
 }
 
@@ -94,7 +101,8 @@ function openCreate() {
   if (!canManage.value) return
   editingId.value = null
   editingCompleted.value = false
-  Object.assign(form, { title: '', content: '', due_at: null, reminder_enabled: false, reminder_email: '' })
+  editingSchedule.value = null
+  Object.assign(form, { title: '', content: '', due_at: null, reminder_enabled: false, reminder_email: '', reminder_repeat: 'once', reminder_timezone: localTimezone })
   clearErrors()
   dialogVisible.value = true
 }
@@ -103,10 +111,13 @@ function openEdit(item: Todo) {
   if (!canManage.value) return
   editingId.value = item.id
   editingCompleted.value = item.is_completed
+  editingSchedule.value = { due: item.due_at ? new Date(item.due_at).getTime() : null, repeat: item.reminder_repeat }
   Object.assign(form, {
     title: item.title, content: item.content, due_at: item.due_at ? new Date(item.due_at) : null,
     reminder_enabled: item.is_completed ? false : item.reminder_enabled,
     reminder_email: item.reminder_email || '',
+    reminder_repeat: item.reminder_repeat,
+    reminder_timezone: item.reminder_timezone,
   })
   clearErrors()
   dialogVisible.value = true
@@ -115,7 +126,7 @@ function openEdit(item: Todo) {
 async function save() {
   if (!canManage.value || !dialogVisible.value) return
   clearErrors()
-  const result = prepareTodoInput(form)
+  const result = prepareTodoInput({ ...form, reminder_timezone: scheduleTimezone.value })
   Object.assign(errors, result.errors)
   if (!result.input) return
   saving.value = true
@@ -198,7 +209,25 @@ function formatTime(value: string | null) {
 }
 
 function isOverdue(item: Todo) {
-  return !item.is_completed && !!item.due_at && new Date(item.due_at).getTime() <= now.value
+  const due = item.reminder_repeat === 'once' ? item.due_at : item.reminder_enabled ? item.reminder_next_run_at : null
+  return !item.is_completed && !!due && new Date(due).getTime() <= now.value
+}
+
+function repeatLabel(item: Todo) {
+  if (item.reminder_repeat === 'once') return '仅一次'
+  if (!item.due_at) return { daily: '每天', monthly: '每月', yearly: '每年' }[item.reminder_repeat]
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: item.reminder_timezone, month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).formatToParts(new Date(item.due_at))
+    const value = (type: Intl.DateTimeFormatPartTypes) => parts.find(part => part.type === type)?.value ?? ''
+    const time = `${value('hour')}:${value('minute')}`
+    if (item.reminder_repeat === 'daily') return `每天 ${time}`
+    if (item.reminder_repeat === 'monthly') return `每月 ${value('day')} 日 ${time}`
+    return `每年 ${value('month')} 月 ${value('day')} 日 ${time}`
+  } catch {
+    return '重复提醒（请检查时区）'
+  }
 }
 
 function reminderLabel(item: Todo) {
@@ -235,7 +264,7 @@ onBeforeUnmount(() => {
     <header class="page-heading">
       <div>
         <h2>待办事项</h2>
-        <p>记录要做的事，按需设置一次邮件提醒。完成事项后，尚未发送的提醒会停止。</p>
+        <p>记录要做的事，支持单次、每天、每月或每年邮件提醒。完成事项后停止提醒。</p>
       </div>
       <div class="page-actions">
         <el-button :loading="loading" :disabled="busy" @click="load">刷新</el-button>
@@ -272,9 +301,10 @@ onBeforeUnmount(() => {
               <p v-if="row.content" class="todo-content">{{ row.content }}</p>
             </template>
           </el-table-column>
-          <el-table-column label="到期时间" min-width="175">
+          <el-table-column label="到期 / 下次提醒" min-width="190">
             <template #default="{ row }">
-              <span :class="{ 'overdue-time': isOverdue(row) }">{{ formatTime(row.due_at) }}</span>
+              <span v-if="row.reminder_repeat !== 'once'" class="reminder-detail">{{ row.reminder_enabled && row.reminder_next_run_at ? '下次提醒' : '首次时间' }}</span>
+              <span :class="{ 'overdue-time': isOverdue(row) }">{{ formatTime(row.reminder_repeat !== 'once' && row.reminder_enabled ? row.reminder_next_run_at : row.due_at) }}</span>
               <span v-if="isOverdue(row)" class="overdue-label">已逾期</span>
             </template>
           </el-table-column>
@@ -284,9 +314,10 @@ onBeforeUnmount(() => {
           <el-table-column label="邮件提醒" min-width="220">
             <template #default="{ row }">
               <el-tag :type="reminderType(row)" effect="plain">{{ reminderLabel(row) }}</el-tag>
+              <span class="reminder-detail">{{ repeatLabel(row) }}<template v-if="row.reminder_repeat !== 'once'"> · {{ row.reminder_timezone }}</template></span>
               <span v-if="row.reminder_email" class="reminder-detail reminder-email" :title="row.reminder_email">{{ row.reminder_email }}</span>
-              <p v-if="row.reminder_sent_at" class="reminder-detail">{{ formatTime(row.reminder_sent_at) }}</p>
-              <el-tooltip v-else-if="row.reminder_error" :content="row.reminder_error" placement="top" :show-after="300">
+              <p v-if="row.reminder_sent_at" class="reminder-detail">最近发送：{{ formatTime(row.reminder_sent_at) }}</p>
+              <el-tooltip v-if="row.reminder_error" :content="row.reminder_error" placement="top" :show-after="300">
                 <span class="reminder-detail error-detail">已尝试 {{ row.reminder_attempts }} 次</span>
               </el-tooltip>
             </template>
@@ -316,14 +347,25 @@ onBeforeUnmount(() => {
         <el-form-item label="内容（选填）" :error="errors.content">
           <el-input v-model="form.content" type="textarea" :rows="5" maxlength="10000" show-word-limit placeholder="补充说明或备忘内容" @input="errors.content = ''" />
         </el-form-item>
-        <el-form-item label="到期时间（选填）" :error="errors.due_at">
+        <el-form-item :label="form.reminder_repeat === 'once' ? '到期时间（选填）' : '首次提醒时间'" :error="errors.due_at">
           <el-date-picker v-model="form.due_at" type="datetime" format="YYYY-MM-DD HH:mm" placeholder="选择到期时间" clearable aria-label="待办到期时间" @change="errors.due_at = ''" />
-          <p class="field-hint">按当前设备的本地时间设置和显示。</p>
+          <p class="field-hint">时间选择框按设备时区 {{ localTimezone }} 显示。</p>
         </el-form-item>
         <el-form-item label="邮件提醒">
           <el-switch v-model="form.reminder_enabled" active-text="到期后提醒我" :disabled="saving || editingCompleted" aria-label="启用到期邮件提醒" @change="errors.due_at = ''" />
           <p v-if="editingCompleted" class="field-hint">已完成的事项不再提醒，重新打开后可再次开启。</p>
-          <p v-else class="field-hint">开启后填写收件邮箱，提醒发送一次；修改到期时间或收件邮箱可重新安排。</p>
+          <p v-else class="field-hint">开启后填写收件邮箱，并选择提醒频率。关闭提醒会停止后续发送。</p>
+        </el-form-item>
+        <el-form-item label="重复频率" :error="errors.reminder_repeat || errors.reminder_timezone">
+          <el-select v-model="form.reminder_repeat" :disabled="!form.reminder_enabled || editingCompleted" aria-label="提醒重复频率" @change="errors.reminder_repeat = ''; errors.reminder_timezone = ''">
+            <el-option label="仅一次" value="once" />
+            <el-option label="每天" value="daily" />
+            <el-option label="每月" value="monthly" />
+            <el-option label="每年" value="yearly" />
+          </el-select>
+          <p v-if="form.reminder_repeat !== 'once'" class="field-hint">以首次时间为基准，按 {{ scheduleTimezone }} 时区重复。修改首次时间或频率后使用设备时区。</p>
+          <p v-if="form.reminder_repeat === 'monthly' || form.reminder_repeat === 'yearly'" class="field-hint">当月没有对应日期时，改为当月最后一天；之后仍按原日期提醒。</p>
+          <p v-if="form.reminder_repeat !== 'once'" class="field-hint">错过多次提醒时只补发一次，再安排下次提醒。</p>
         </el-form-item>
         <el-form-item :label="form.reminder_enabled ? '收件邮箱' : '收件邮箱（选填）'" :error="errors.reminder_email" :required="form.reminder_enabled">
           <el-input v-model="form.reminder_email" type="email" maxlength="254" autocomplete="email" placeholder="例如：name@example.com" clearable aria-label="提醒收件邮箱" @input="errors.reminder_email = ''" />

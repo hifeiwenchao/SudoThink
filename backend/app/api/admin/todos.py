@@ -62,6 +62,9 @@ def todo_dict(todo):
         "due_at": todo.due_at.isoformat() if todo.due_at else None,
         "is_completed": todo.is_completed, "reminder_enabled": todo.reminder_enabled,
         "reminder_email": todo.reminder_email,
+        "reminder_repeat": todo.reminder_repeat,
+        "reminder_timezone": todo.reminder_timezone,
+        "reminder_next_run_at": todo.reminder_next_run_at.isoformat() if todo.reminder_next_run_at else None,
         "reminder_status": todo.reminder_status,
         "reminder_sent_at": todo.reminder_sent_at.isoformat() if todo.reminder_sent_at else None,
         "reminder_attempts": todo.reminder_attempts, "reminder_error": todo.reminder_error,
@@ -75,15 +78,19 @@ def _invalidate_claim(todo):
     todo.reminder_claim_until = None
 
 
-def _reset_reminder(todo):
+def _reset_reminder(todo, *, reset_schedule=False):
     todo.reminder_attempts = 0
     todo.reminder_error = ""
-    todo.reminder_sent_at = None
+    if reset_schedule or todo.reminder_repeat == "once":
+        todo.reminder_sent_at = None
     if todo.reminder_enabled and not todo.is_completed:
+        if reset_schedule or todo.reminder_next_run_at is None:
+            todo.reminder_next_run_at = todo.due_at
         todo.reminder_status = "pending"
-        todo.reminder_next_attempt_at = todo.due_at
+        todo.reminder_next_attempt_at = todo.reminder_next_run_at
     else:
         todo.reminder_status = "disabled"
+        todo.reminder_next_run_at = None
         todo.reminder_next_attempt_at = None
 
 
@@ -113,7 +120,12 @@ async def list_todos(request: Request):
     elif status == "completed":
         qs = qs.filter(is_completed=True)
     elif status == "overdue":
-        qs = qs.filter(is_completed=False, due_at__lt=datetime.now(timezone.utc))
+        now = datetime.now(timezone.utc)
+        qs = qs.filter(
+            Q(reminder_repeat="once", due_at__lt=now)
+            | (~Q(reminder_repeat="once") & Q(reminder_next_run_at__lt=now)),
+            is_completed=False,
+        )
     if query:
         qs = qs.filter(Q(title__icontains=query) | Q(content__icontains=query))
     total = await qs.count()
@@ -144,8 +156,14 @@ async def update_todo(request: Request, todo_id: int):
         todo = await _locked_todo(request.ctx.user.id, todo_id, connection)
         if todo.is_completed and payload.reminder_enabled:
             raise ValidationError("请先将事项恢复为未完成，再启用提醒")
-        reschedule = (
+        reset_schedule = (
             todo.due_at != payload.due_at
+            or todo.reminder_repeat != payload.reminder_repeat
+            or todo.reminder_timezone != payload.reminder_timezone
+            or (not todo.reminder_enabled and payload.reminder_enabled)
+        )
+        reschedule = (
+            reset_schedule
             or todo.reminder_enabled != payload.reminder_enabled
             or todo.reminder_email != payload.reminder_email
         )
@@ -154,7 +172,7 @@ async def update_todo(request: Request, todo_id: int):
             setattr(todo, name, value)
         _invalidate_claim(todo)
         if reschedule or pending or not todo.reminder_enabled:
-            _reset_reminder(todo)
+            _reset_reminder(todo, reset_schedule=reset_schedule or todo.reminder_repeat == "once")
         await todo.save(using_db=connection)
     return success(todo_dict(todo), message="updated")
 
@@ -171,6 +189,7 @@ async def set_todo_completion(request: Request, todo_id: int):
             todo.reminder_enabled = False
             _invalidate_claim(todo)
             todo.reminder_status = "disabled"
+            todo.reminder_next_run_at = None
             todo.reminder_next_attempt_at = None
             todo.reminder_error = ""
             await todo.save(using_db=connection)

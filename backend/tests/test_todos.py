@@ -91,6 +91,9 @@ class TodoTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(saved["reminder_email"], "reminder@example.com")
         self.assertFalse(saved["is_completed"])
         self.assertEqual(saved["reminder_attempts"], 0)
+        self.assertEqual(saved["reminder_repeat"], "once")
+        self.assertEqual(saved["reminder_timezone"], "Asia/Shanghai")
+        self.assertEqual(datetime.fromisoformat(saved["reminder_next_run_at"]), self.due)
         self.assertNotIn("owner_id", saved)
         self.assertNotIn("reminder_claim_token", saved)
         self.assertNotIn("reminder_revision", saved)
@@ -101,8 +104,97 @@ class TodoTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(edited["title"], "新标题")
         self.assertIsNone(edited["due_at"])
         self.assertEqual(edited["reminder_status"], "disabled")
+        self.assertIsNone(edited["reminder_next_run_at"])
         await self.api.delete_todo(self.request(self.admin), saved["id"])
         self.assertFalse(await self.Todo.exists(id=saved["id"]))
+
+    async def test_repeat_and_timezone_are_validated_and_returned(self):
+        for repeat in ("daily", "monthly", "yearly"):
+            saved = await self.create(reminder_repeat=repeat, reminder_timezone="America/New_York")
+            self.assertEqual(saved["reminder_repeat"], repeat)
+            self.assertEqual(saved["reminder_timezone"], "America/New_York")
+            self.assertEqual(datetime.fromisoformat(saved["reminder_next_run_at"]), self.due)
+        for values in (
+            {"reminder_repeat": "weekly"}, {"reminder_repeat": None}, {"reminder_repeat": 1},
+            {"reminder_timezone": "Unknown/Timezone"}, {"reminder_timezone": ""},
+            {"reminder_timezone": "x" * 65}, {"reminder_timezone": 8},
+        ):
+            with self.subTest(values=values), self.assertRaises(ValidationError):
+                await self.create(**values)
+
+    async def test_recurring_edits_preserve_next_occurrence_until_schedule_changes(self):
+        saved = await self.create(reminder_repeat="monthly")
+        next_run = self.due + timedelta(days=31)
+        sent_at = self.due
+        await self.Todo.filter(id=saved["id"]).update(
+            reminder_next_run_at=next_run, reminder_next_attempt_at=next_run,
+            reminder_sent_at=sent_at,
+        )
+        for changes in ({"title": "更新内容"}, {"reminder_email": "another@example.com"}):
+            changed = self.data(await self.api.update_todo(self.request(
+                self.admin, self.payload(reminder_repeat="monthly", **changes),
+            ), saved["id"]))
+            row = await self.Todo.get(id=saved["id"])
+            self.assertEqual(datetime.fromisoformat(changed["reminder_next_run_at"]), next_run)
+            self.assertEqual(row.reminder_next_attempt_at, next_run)
+            self.assertEqual(row.due_at, self.due)
+            self.assertEqual(datetime.fromisoformat(changed["reminder_sent_at"]), sent_at)
+        changed = self.data(await self.api.update_todo(self.request(
+            self.admin, self.payload(reminder_repeat="yearly"),
+        ), saved["id"]))
+        self.assertEqual(datetime.fromisoformat(changed["reminder_next_run_at"]), self.due)
+        self.assertIsNone(changed["reminder_sent_at"])
+        changed = self.data(await self.api.update_todo(self.request(
+            self.admin, self.payload(reminder_repeat="yearly", reminder_timezone="Europe/London"),
+        ), saved["id"]))
+        self.assertEqual(changed["reminder_timezone"], "Europe/London")
+        self.assertEqual(datetime.fromisoformat(changed["reminder_next_run_at"]), self.due)
+
+    async def test_recurring_retry_keeps_failed_occurrence_and_completion_cancels_future(self):
+        saved = await self.create(reminder_repeat="daily")
+        next_run = self.due + timedelta(days=3)
+        await self.Todo.filter(id=saved["id"]).update(
+            reminder_next_run_at=next_run, reminder_next_attempt_at=None,
+            reminder_status="failed", reminder_attempts=3, reminder_sent_at=self.due,
+        )
+        retried = self.data(await self.api.retry_todo_reminder(self.request(self.admin), saved["id"]))
+        self.assertEqual(datetime.fromisoformat(retried["reminder_next_run_at"]), next_run)
+        self.assertEqual((await self.Todo.get(id=saved["id"])).reminder_next_attempt_at, next_run)
+        self.assertEqual(datetime.fromisoformat(retried["reminder_sent_at"]), self.due)
+        completed = self.data(await self.api.set_todo_completion(self.request(
+            self.admin, {"is_completed": True},
+        ), saved["id"]))
+        self.assertEqual(completed["reminder_repeat"], "daily")
+        self.assertIsNone(completed["reminder_next_run_at"])
+
+    async def test_disabling_recurring_reminder_keeps_history_and_reenable_rearms_from_anchor(self):
+        saved = await self.create(reminder_repeat="daily")
+        next_run = self.due + timedelta(days=3)
+        await self.Todo.filter(id=saved["id"]).update(
+            reminder_next_run_at=next_run, reminder_next_attempt_at=next_run,
+            reminder_sent_at=self.due,
+        )
+        for content in ("关闭提醒", "关闭后的内容更新"):
+            changed = self.data(await self.api.update_todo(self.request(
+                self.admin, self.payload(content=content, reminder_repeat="daily", reminder_enabled=False),
+            ), saved["id"]))
+            self.assertIsNone(changed["reminder_next_run_at"])
+            self.assertEqual(datetime.fromisoformat(changed["reminder_sent_at"]), self.due)
+        enabled = self.data(await self.api.update_todo(self.request(
+            self.admin, self.payload(reminder_repeat="daily"),
+        ), saved["id"]))
+        self.assertEqual(datetime.fromisoformat(enabled["reminder_next_run_at"]), self.due)
+        self.assertIsNone(enabled["reminder_sent_at"])
+
+    async def test_recurring_overdue_filter_uses_next_run_not_original_anchor(self):
+        past = "2020-01-01T00:00:00Z"
+        saved = await self.create(reminder_repeat="daily", due_at=past)
+        await self.Todo.filter(id=saved["id"]).update(
+            reminder_next_run_at=self.due, reminder_next_attempt_at=self.due,
+        )
+        self.assertEqual((await self.list(status="overdue"))["total"], 0)
+        await self.Todo.filter(id=saved["id"]).update(reminder_next_run_at=datetime.fromisoformat(past))
+        self.assertEqual((await self.list(status="overdue"))["total"], 1)
 
     async def test_todos_are_private_between_admins_and_missing_ids_are_not_found(self):
         saved = await self.create()

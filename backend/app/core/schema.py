@@ -76,17 +76,29 @@ async def _upgrade_guest_comments(connection) -> None:
 
 
 async def _upgrade_todos(connection) -> None:
-    """Add the per-todo reminder mailbox to databases created before reminders."""
+    """Add reminder calendar state and retain existing one-time schedules."""
     columns = await connection.execute_query_dict(
         "SELECT COLUMN_NAME FROM information_schema.COLUMNS "
-        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'todos' "
-        "AND COLUMN_NAME = 'reminder_email'"
+        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'todos'"
     )
-    if not columns:
-        await connection.execute_script(
-            "ALTER TABLE `todos` ADD COLUMN `reminder_email` VARCHAR(254) NOT NULL DEFAULT '' "
-            "COMMENT '提醒收件邮箱'"
-        )
+    existing = {column["COLUMN_NAME"] for column in columns}
+    additions = {
+        "reminder_email": "VARCHAR(254) NOT NULL DEFAULT '' COMMENT '提醒收件邮箱'",
+        "reminder_repeat": "VARCHAR(16) NOT NULL DEFAULT 'once' COMMENT '提醒重复频率'",
+        "reminder_timezone": "VARCHAR(64) NOT NULL DEFAULT 'Asia/Shanghai' COMMENT '提醒日历时区'",
+        "reminder_next_run_at": "DATETIME(6) NULL COMMENT '本次计划提醒时间'",
+    }
+    changes = [f"ADD COLUMN `{name}` {definition}" for name, definition in additions.items() if name not in existing]
+    if changes:
+        await connection.execute_script("ALTER TABLE `todos` " + ", ".join(changes))
+    # Run on every upgrade so a process interrupted after the DDL can recover.
+    # Existing next occurrences and already-sent one-time reminders remain intact.
+    await connection.execute_query(
+        "UPDATE `todos` SET `reminder_next_run_at` = `due_at` "
+        "WHERE `reminder_next_run_at` IS NULL AND `due_at` IS NOT NULL "
+        "AND `reminder_enabled` = 1 AND `is_completed` = 0 "
+        "AND `reminder_status` IN ('pending', 'sending', 'failed')"
+    )
 
 
 async def upgrade_site_content_schema() -> None:

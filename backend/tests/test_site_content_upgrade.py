@@ -14,12 +14,27 @@ class MySQLMetadata:
         self.capabilities = SimpleNamespace(dialect="mysql")
         self.weight = upgraded
         self.columns = {"author_id": {"COLUMN_NAME": "author_id", "IS_NULLABLE": "YES" if upgraded else "NO", "COLUMN_TYPE": "int"}}
-        self.todo_columns = {"reminder_email": {"COLUMN_NAME": "reminder_email"}} if upgraded else {}
+        self.todo_columns = {name: {"COLUMN_NAME": name} for name in (
+            "reminder_email", "reminder_repeat", "reminder_timezone", "reminder_next_run_at",
+        )} if upgraded else {}
+        self.todo_records = []
         if upgraded:
             self.columns.update({name: {"COLUMN_NAME": name, "IS_NULLABLE": "NO", "COLUMN_TYPE": "varchar"} for name in ("nickname", "email", "ip_address", "location", "is_rejected", "user_agent")})
         self.foreign_keys = [{"CONSTRAINT_NAME": "legacy_comment_author_fk", "REFERENCED_TABLE_NAME": "users", "REFERENCED_COLUMN_NAME": "id", "DELETE_RULE": "SET NULL" if upgraded else "CASCADE", "UPDATE_RULE": "RESTRICT"}]
         self.records = [{"id": 7, "author_id": 13, "content": "Existing comment"}]
         self.scripts = []
+        self.backfills = []
+
+    async def execute_query(self, sql):
+        if not sql.startswith("UPDATE `todos`"):
+            raise AssertionError(f"Unexpected data query: {sql}")
+        self.backfills.append(sql)
+        for record in self.todo_records:
+            if (record.get("reminder_next_run_at") is None and record["reminder_enabled"]
+                    and not record["is_completed"] and record["reminder_status"] in {"pending", "sending", "failed"}
+                    and record["due_at"] is not None):
+                record["reminder_next_run_at"] = record["due_at"]
+        return (0, [])
 
     async def execute_query_dict(self, sql):
         if "TABLE_NAME = 'categories'" in sql:
@@ -38,7 +53,9 @@ class MySQLMetadata:
             self.weight = True
             return
         if "`todos`" in sql:
-            self.todo_columns["reminder_email"] = {"COLUMN_NAME": "reminder_email"}
+            for name in ("reminder_email", "reminder_repeat", "reminder_timezone", "reminder_next_run_at"):
+                if f"ADD COLUMN `{name}`" in sql:
+                    self.todo_columns[name] = {"COLUMN_NAME": name}
             return
         for name in ("nickname", "email", "ip_address", "location"):
             if f"ADD COLUMN `{name}`" in sql:
@@ -99,6 +116,41 @@ class SiteContentUpgradeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("ADD COLUMN `location`", connection.scripts[0])
         self.assertNotIn("DROP FOREIGN KEY", connection.scripts[0])
         self.assertNotIn("MODIFY COLUMN", connection.scripts[0])
+
+    async def test_reminder_upgrade_adds_calendar_fields_and_backfills_only_active_occurrences(self):
+        connection = MySQLMetadata(upgraded=True)
+        for name in ("reminder_repeat", "reminder_timezone", "reminder_next_run_at"):
+            del connection.todo_columns[name]
+        date = "2026-11-17 08:00:00"
+        for state in ("pending", "sending", "failed", "sent", "disabled"):
+            connection.todo_records.append({
+                "reminder_enabled": state != "disabled", "is_completed": False,
+                "reminder_status": state, "due_at": date,
+            })
+        connection.todo_records.append({
+            "reminder_enabled": True, "is_completed": True, "reminder_status": "pending", "due_at": date,
+        })
+        await self.upgrade_with(connection)
+        self.assertEqual(len(connection.scripts), 1)
+        self.assertIn("ADD COLUMN `reminder_repeat` VARCHAR(16) NOT NULL DEFAULT 'once'", connection.scripts[0])
+        self.assertIn("ADD COLUMN `reminder_timezone` VARCHAR(64) NOT NULL DEFAULT 'Asia/Shanghai'", connection.scripts[0])
+        self.assertIn("ADD COLUMN `reminder_next_run_at` DATETIME(6) NULL", connection.scripts[0])
+        self.assertNotIn("ADD COLUMN `reminder_email`", connection.scripts[0])
+        self.assertEqual([row.get("reminder_next_run_at") for row in connection.todo_records], [date, date, date, None, None, None])
+        connection.todo_records[0]["reminder_next_run_at"] = "2026-11-18 08:00:00"
+        await self.upgrade_with(connection)
+        self.assertEqual(len(connection.scripts), 1)
+        self.assertEqual(connection.todo_records[0]["reminder_next_run_at"], "2026-11-18 08:00:00")
+
+    async def test_reminder_backfill_recovers_upgrade_interrupted_after_columns_were_added(self):
+        connection = MySQLMetadata(upgraded=True)
+        connection.todo_records = [{
+            "reminder_enabled": True, "is_completed": False, "reminder_status": "pending",
+            "due_at": "2026-11-17 08:00:00", "reminder_next_run_at": None,
+        }]
+        await self.upgrade_with(connection)
+        self.assertEqual(connection.scripts, [])
+        self.assertEqual(connection.todo_records[0]["reminder_next_run_at"], "2026-11-17 08:00:00")
 
     async def test_review_upgrade_preserves_legacy_approvals_and_is_idempotent(self):
         connection = MySQLMetadata(upgraded=True)
