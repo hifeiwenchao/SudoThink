@@ -14,9 +14,9 @@
 
 ## 待办提醒
 
-管理员私有待办保存在 `todos` 表，接口为 `/api/admin/todos` 的列表、创建、修改、删除及 `/<id>/completion`、`/<id>/retry` 操作。前端提交带时区的 ISO 时间，数据库沿用项目时区设置。`reminder_repeat` 支持 `once/daily/monthly/yearly`，`reminder_timezone` 保存 IANA 时区；邮件按保存的时区展示本次提醒时间。
+管理员私有待办保存在 `todos` 表，接口为 `/api/admin/todos` 的列表、创建、修改、删除及 `/<id>/completion`、`/<id>/retry` 操作。新提醒使用 `reminder_repeat=cron`、`reminder_cron` 五段表达式和 `reminder_timezone` IANA 时区；无需旧的截止时间。`POST /api/admin/todos/preview` 返回未来 5 次时间，与 worker 共同使用 `todo_cron.py` 和 croniter。解析限定标准字段、128 字符、8 年搜索窗口，日与星期采用 OR 语义；前端中文说明只辅助展示，发送时间以服务端预览为准。
 
-`due_at` 保留首次日期作为日历基准，`reminder_next_run_at` 保存本次计划时间，`reminder_next_attempt_at` 独立控制发送重试。发送成功后按原始日期推进到当前时间之后的下一次，清零本轮尝试次数；遗漏的多个周期只补发一次。短月取月末，后续恢复原始日；夏令时跳过的时刻向后平移，重复时刻只取第一次。原有单次提醒通过升级脚本补齐计划时间，已发送的单次提醒不会重新发送。
+`reminder_next_run_at` 保存本次计划时间，`reminder_next_attempt_at` 独立控制发送重试。发送成功后计算当前时间之后的下个匹配时刻并清零本轮尝试次数；遗漏的多个周期只补发一次。crontab 夏令时缺失时刻使用下一有效时刻，折返时同一当地分钟只提醒一次。原有 `once/daily/monthly/yearly` 和 `due_at` 仅用于兼容旧记录，保留月末与闰年规则；修改内容不会隐式转换为 crontab。升级脚本仅增加表达式字段，保留原有计划和已发送状态。
 
 `app.tasks.todos.send_due_reminders` 每分钟处理最多 20 条到期提醒。数据库条件更新原子领取，租约为 5 分钟；版本及令牌防止重复领取、旧发送结果覆盖后续编辑。发送前重新检查事项、提醒开关和收件邮箱。没有 SMTP 配置或未填写收件邮箱时不消耗尝试次数。
 

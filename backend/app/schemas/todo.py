@@ -1,24 +1,20 @@
 """待办完整表单与完成状态校验。"""
 import unicodedata
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.mail import MailDeliveryError, validate_recipient
+from app.core.todo_cron import next_cron_at, normalize_cron
 
 
-class TodoIn(BaseModel):
+class TodoCronFields(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    title: str = Field(strict=True, min_length=1, max_length=200)
-    content: str = Field(strict=True, max_length=10000)
-    due_at: AwareDatetime | None
-    reminder_enabled: bool = Field(strict=True)
-    reminder_email: str = Field(default="", strict=True, max_length=254)
-    reminder_repeat: Literal["once", "daily", "monthly", "yearly"] = "once"
     reminder_timezone: str = Field(default="Asia/Shanghai", strict=True, min_length=1, max_length=64)
+    reminder_cron: str = Field(default="", strict=True, max_length=128)
 
     @field_validator("reminder_timezone")
     @classmethod
@@ -28,6 +24,30 @@ class TodoIn(BaseModel):
         except (ZoneInfoNotFoundError, ValueError):
             raise ValueError("提醒时区必须为有效的 IANA 时区") from None
         return value
+
+    @field_validator("reminder_cron")
+    @classmethod
+    def valid_cron(cls, value):
+        return normalize_cron(value) if value.strip() else ""
+
+
+class TodoCronPreviewIn(TodoCronFields):
+    reminder_cron: str = Field(strict=True, min_length=1, max_length=128)
+
+    @model_validator(mode="after")
+    def requires_expression(self):
+        if not self.reminder_cron:
+            raise ValueError("请填写 crontab 表达式")
+        return self
+
+
+class TodoIn(TodoCronFields):
+    title: str = Field(strict=True, min_length=1, max_length=200)
+    content: str = Field(strict=True, max_length=10000)
+    due_at: AwareDatetime | None
+    reminder_enabled: bool = Field(strict=True)
+    reminder_email: str = Field(default="", strict=True, max_length=254)
+    reminder_repeat: Literal["once", "daily", "monthly", "yearly", "cron"] = "once"
 
     @field_validator("title", "content", mode="before")
     @classmethod
@@ -69,7 +89,12 @@ class TodoIn(BaseModel):
 
     @model_validator(mode="after")
     def reminder_requires_date(self):
-        if self.reminder_enabled and self.due_at is None:
+        if self.reminder_repeat == "cron":
+            if self.reminder_enabled and not self.reminder_cron:
+                raise ValueError("启用邮件提醒时必须填写 crontab 表达式")
+            if self.reminder_cron:
+                next_cron_at(self.reminder_cron, self.reminder_timezone, after=datetime.now(timezone.utc))
+        elif self.reminder_enabled and self.due_at is None:
             raise ValueError("启用邮件提醒时必须设置截止时间")
         if self.reminder_enabled and not self.reminder_email:
             raise ValueError("启用邮件提醒时必须填写提醒邮箱")

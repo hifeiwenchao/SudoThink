@@ -2,7 +2,7 @@ import http from './http'
 
 export type TodoReminderStatus = 'disabled' | 'pending' | 'sending' | 'sent' | 'failed'
 export type TodoFilter = 'all' | 'pending' | 'completed' | 'overdue'
-export type TodoRepeat = 'once' | 'daily' | 'monthly' | 'yearly'
+export type TodoRepeat = 'once' | 'daily' | 'monthly' | 'yearly' | 'cron'
 
 export interface Todo {
   id: number
@@ -14,6 +14,7 @@ export interface Todo {
   reminder_email: string
   reminder_repeat: TodoRepeat
   reminder_timezone: string
+  reminder_cron: string
   reminder_next_run_at: string | null
   reminder_status: TodoReminderStatus
   reminder_sent_at: string | null
@@ -31,6 +32,13 @@ export interface TodoInput {
   reminder_email: string
   reminder_repeat: TodoRepeat
   reminder_timezone: string
+  reminder_cron: string
+}
+
+export interface TodoCronPreview {
+  expression: string
+  timezone: string
+  times: string[]
 }
 
 export interface TodoPage {
@@ -42,6 +50,9 @@ export interface TodoPage {
 }
 
 export const todosApi = {
+  preview(input: { reminder_cron: string; reminder_timezone: string }, signal?: AbortSignal) {
+    return http.post<unknown, TodoCronPreview>('/admin/todos/preview', input, { signal })
+  },
   list(params: { page: number; size: number; status: TodoFilter; q?: string }, signal?: AbortSignal) {
     return http.get<unknown, TodoPage>('/admin/todos', { params, signal })
   },

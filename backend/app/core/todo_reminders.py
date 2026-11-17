@@ -11,6 +11,7 @@ from tortoise.expressions import Q
 
 from app.core.config import settings
 from app.core.mail import MailDeliveryError, send_mail, smtp_ready, validate_recipient
+from app.core.todo_cron import next_cron_at
 from app.core.todo_recurrence import next_reminder_at
 from app.models.todo import Todo
 
@@ -112,10 +113,11 @@ async def deliver_reminder(
             logger.warning("Todo reminder %s delivery failed (attempt %s)", todo_id, todo.reminder_attempts)
         return "failed" if changed else "skipped"
     finished = supplied_now or datetime.now(timezone.utc)
-    next_run = next_reminder_at(
-        todo.due_at, todo.reminder_repeat, todo.reminder_timezone,
-        after=max(finished, todo.reminder_next_run_at),
-    )
+    after = max(finished, todo.reminder_next_run_at)
+    if todo.reminder_repeat == "cron":
+        next_run = next_cron_at(todo.reminder_cron, todo.reminder_timezone, after=after)
+    else:
+        next_run = next_reminder_at(todo.due_at, todo.reminder_repeat, todo.reminder_timezone, after=after)
     changes = dict(
         reminder_status="pending" if next_run else "sent", reminder_sent_at=finished, reminder_error="",
         reminder_claim_token="", reminder_claim_until=None,

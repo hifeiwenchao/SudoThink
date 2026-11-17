@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
-import { todosApi, type Todo, type TodoFilter } from '@/api/todos'
+import { todosApi, type Todo, type TodoFilter, type TodoCronPreview } from '@/api/todos'
 import { deviceTimezone, prepareTodoInput, type TodoForm, type TodoFormErrors } from '@/utils/todos'
+import { buildTodoCron, describeTodoCron, normalizeTodoCron, type TodoCronBuilder } from '@/utils/todoCron'
 
 const list = ref<Todo[]>([])
 const total = ref(0)
@@ -24,11 +25,17 @@ const editingCompleted = ref(false)
 const saving = ref(false)
 const saveError = ref('')
 const localTimezone = deviceTimezone()
-const editingSchedule = ref<{ due: number | null; repeat: Todo['reminder_repeat'] } | null>(null)
-const form = reactive<TodoForm>({ title: '', content: '', due_at: null, reminder_enabled: false, reminder_email: '', reminder_repeat: 'once', reminder_timezone: localTimezone })
-const scheduleTimezone = computed(() => editingSchedule.value
-  && editingSchedule.value.due === (form.due_at?.getTime() ?? null)
-  && editingSchedule.value.repeat === form.reminder_repeat ? form.reminder_timezone : localTimezone)
+const form = reactive<TodoForm>({ title: '', content: '', due_at: null, reminder_enabled: false, reminder_email: '', reminder_repeat: 'cron', reminder_timezone: localTimezone, reminder_cron: '0 9 * * *' })
+const builder = reactive<TodoCronBuilder>({ preset: 'daily', time: '09:00', weekdays: [1, 2, 3, 4, 5], day: 1, month: 1, interval: 15 })
+const cronPreview = ref<TodoCronPreview | null>(null)
+const previewLoading = ref(false)
+const previewError = ref('')
+const previewedKey = ref('')
+const cronKey = computed(() => JSON.stringify([form.reminder_cron, form.reminder_timezone]))
+const needsPreview = computed(() => dialogVisible.value && form.reminder_enabled && form.reminder_repeat === 'cron')
+const previewValid = computed(() => !needsPreview.value || !!cronPreview.value && previewedKey.value === cronKey.value && !previewLoading.value && !previewError.value)
+const cronDescription = computed(() => describeTodoCron(form.reminder_cron))
+const weekdays = [{ value: 1, label: '周一' }, { value: 2, label: '周二' }, { value: 3, label: '周三' }, { value: 4, label: '周四' }, { value: 5, label: '周五' }, { value: 6, label: '周六' }, { value: 0, label: '周日' }]
 const errors = reactive<TodoFormErrors>({})
 const now = ref(Date.now())
 const busy = computed(() => loading.value || saving.value || operationId.value !== null)
@@ -36,6 +43,77 @@ const canManage = computed(() => loaded.value && !loadError.value && !busy.value
 let active = true
 let controller: AbortController | null = null
 let refreshTimer: ReturnType<typeof setInterval> | undefined
+let previewTimer: ReturnType<typeof setTimeout> | undefined
+let previewController: AbortController | null = null
+let previewRevision = 0
+
+function resetPreview() {
+  if (previewTimer !== undefined) clearTimeout(previewTimer)
+  previewController?.abort()
+  previewRevision++
+  cronPreview.value = null
+  previewedKey.value = ''
+  previewLoading.value = false
+  previewError.value = ''
+}
+
+watch([needsPreview, cronKey], () => {
+  resetPreview()
+  if (needsPreview.value) {
+    previewLoading.value = true
+    previewTimer = setTimeout(() => { void fetchCronPreview() }, 350)
+  }
+}, { flush: 'sync' })
+
+async function fetchCronPreview(): Promise<boolean> {
+  resetPreview()
+  if (!needsPreview.value || !active) return false
+  let expression: string
+  try {
+    expression = normalizeTodoCron(form.reminder_cron)
+    new Intl.DateTimeFormat('zh-CN', { timeZone: form.reminder_timezone }).format()
+  } catch (cause) {
+    previewError.value = cause instanceof Error ? cause.message : '请检查表达式和执行时区'
+    return false
+  }
+  const revision = previewRevision
+  const key = cronKey.value
+  const request = new AbortController()
+  previewController = request
+  previewLoading.value = true
+  try {
+    const result = await todosApi.preview({ reminder_cron: expression, reminder_timezone: form.reminder_timezone }, request.signal)
+    if (!active || request.signal.aborted || revision !== previewRevision || key !== cronKey.value || !needsPreview.value) return false
+    if (result.times.length !== 5 || result.times.some(value => !Number.isFinite(new Date(value).getTime()))) throw new Error('invalid preview')
+    cronPreview.value = result
+    previewedKey.value = key
+    return true
+  } catch {
+    if (active && !request.signal.aborted && revision === previewRevision && key === cronKey.value) previewError.value = '无法确认提醒时间，请检查表达式、时区或网络后重新预览。'
+    return false
+  } finally {
+    if (active && revision === previewRevision) previewLoading.value = false
+    if (previewController === request) previewController = null
+  }
+}
+
+function applyCronBuilder() {
+  if (builder.preset === 'custom') return
+  try {
+    form.reminder_cron = buildTodoCron(builder)
+    errors.reminder_cron = ''
+  } catch (cause) {
+    form.reminder_cron = ''
+    errors.reminder_cron = cause instanceof Error ? cause.message : '请补齐提醒时间'
+  }
+}
+
+function configureCron() {
+  form.reminder_repeat = 'cron'
+  form.due_at = null
+  form.reminder_cron = '0 9 * * *'
+  Object.assign(builder, { preset: 'daily', time: '09:00', weekdays: [1, 2, 3, 4, 5], day: 1, month: 1, interval: 15 })
+}
 
 async function load() {
   if (loading.value || !active) return
@@ -94,6 +172,7 @@ function clearErrors() {
   delete errors.reminder_email
   delete errors.reminder_repeat
   delete errors.reminder_timezone
+  delete errors.reminder_cron
   saveError.value = ''
 }
 
@@ -101,8 +180,8 @@ function openCreate() {
   if (!canManage.value) return
   editingId.value = null
   editingCompleted.value = false
-  editingSchedule.value = null
-  Object.assign(form, { title: '', content: '', due_at: null, reminder_enabled: false, reminder_email: '', reminder_repeat: 'once', reminder_timezone: localTimezone })
+  Object.assign(form, { title: '', content: '', due_at: null, reminder_enabled: false, reminder_email: '', reminder_repeat: 'cron', reminder_timezone: localTimezone, reminder_cron: '0 9 * * *' })
+  Object.assign(builder, { preset: 'daily', time: '09:00', weekdays: [1, 2, 3, 4, 5], day: 1, month: 1, interval: 15 })
   clearErrors()
   dialogVisible.value = true
 }
@@ -111,14 +190,15 @@ function openEdit(item: Todo) {
   if (!canManage.value) return
   editingId.value = item.id
   editingCompleted.value = item.is_completed
-  editingSchedule.value = { due: item.due_at ? new Date(item.due_at).getTime() : null, repeat: item.reminder_repeat }
   Object.assign(form, {
     title: item.title, content: item.content, due_at: item.due_at ? new Date(item.due_at) : null,
     reminder_enabled: item.is_completed ? false : item.reminder_enabled,
     reminder_email: item.reminder_email || '',
     reminder_repeat: item.reminder_repeat,
     reminder_timezone: item.reminder_timezone,
+    reminder_cron: item.reminder_cron || '',
   })
+  builder.preset = 'custom'
   clearErrors()
   dialogVisible.value = true
 }
@@ -126,11 +206,12 @@ function openEdit(item: Todo) {
 async function save() {
   if (!canManage.value || !dialogVisible.value) return
   clearErrors()
-  const result = prepareTodoInput({ ...form, reminder_timezone: scheduleTimezone.value })
+  const result = prepareTodoInput(form)
   Object.assign(errors, result.errors)
   if (!result.input) return
   saving.value = true
   try {
+    if (needsPreview.value && !previewValid.value && !await fetchCronPreview()) return
     if (editingId.value === null) await todosApi.create(result.input)
     else await todosApi.update(editingId.value, result.input)
     if (!active) return
@@ -214,6 +295,7 @@ function isOverdue(item: Todo) {
 }
 
 function repeatLabel(item: Todo) {
+  if (item.reminder_repeat === 'cron') return describeTodoCron(item.reminder_cron)
   if (item.reminder_repeat === 'once') return '仅一次'
   if (!item.due_at) return { daily: '每天', monthly: '每月', yearly: '每年' }[item.reminder_repeat]
   try {
@@ -244,6 +326,10 @@ function reminderType(item: Todo): 'info' | 'warning' | 'success' | 'danger' {
   return 'warning'
 }
 
+function formatPreviewTime(value: string) {
+  return new Date(value).toLocaleString('zh-CN', { timeZone: cronPreview.value?.timezone || form.reminder_timezone, year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false })
+}
+
 onMounted(() => {
   void load()
   refreshTimer = setInterval(() => {
@@ -255,6 +341,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   active = false
   controller?.abort()
+  resetPreview()
   if (refreshTimer !== undefined) clearInterval(refreshTimer)
 })
 </script>
@@ -264,7 +351,7 @@ onBeforeUnmount(() => {
     <header class="page-heading">
       <div>
         <h2>待办事项</h2>
-        <p>记录要做的事，支持单次、每天、每月或每年邮件提醒。完成事项后停止提醒。</p>
+        <p>记录要做的事，用快捷设置或 crontab 自定义邮件提醒时间。完成事项后停止提醒。</p>
       </div>
       <div class="page-actions">
         <el-button :loading="loading" :disabled="busy" @click="load">刷新</el-button>
@@ -301,10 +388,9 @@ onBeforeUnmount(() => {
               <p v-if="row.content" class="todo-content">{{ row.content }}</p>
             </template>
           </el-table-column>
-          <el-table-column label="到期 / 下次提醒" min-width="190">
+          <el-table-column label="下次提醒" min-width="190">
             <template #default="{ row }">
-              <span v-if="row.reminder_repeat !== 'once'" class="reminder-detail">{{ row.reminder_enabled && row.reminder_next_run_at ? '下次提醒' : '首次时间' }}</span>
-              <span :class="{ 'overdue-time': isOverdue(row) }">{{ formatTime(row.reminder_repeat !== 'once' && row.reminder_enabled ? row.reminder_next_run_at : row.due_at) }}</span>
+              <span :class="{ 'overdue-time': isOverdue(row) }">{{ formatTime(row.reminder_enabled ? row.reminder_next_run_at || (row.reminder_repeat === 'once' ? row.due_at : null) : null) }}</span>
               <span v-if="isOverdue(row)" class="overdue-label">已逾期</span>
             </template>
           </el-table-column>
@@ -315,6 +401,7 @@ onBeforeUnmount(() => {
             <template #default="{ row }">
               <el-tag :type="reminderType(row)" effect="plain">{{ reminderLabel(row) }}</el-tag>
               <span class="reminder-detail">{{ repeatLabel(row) }}<template v-if="row.reminder_repeat !== 'once'"> · {{ row.reminder_timezone }}</template></span>
+              <code v-if="row.reminder_repeat === 'cron'" class="reminder-detail cron-expression">{{ row.reminder_cron }}</code>
               <span v-if="row.reminder_email" class="reminder-detail reminder-email" :title="row.reminder_email">{{ row.reminder_email }}</span>
               <p v-if="row.reminder_sent_at" class="reminder-detail">最近发送：{{ formatTime(row.reminder_sent_at) }}</p>
               <el-tooltip v-if="row.reminder_error" :content="row.reminder_error" placement="top" :show-after="300">
@@ -339,7 +426,7 @@ onBeforeUnmount(() => {
       </div>
     </template>
 
-    <el-dialog v-model="dialogVisible" :title="editingId === null ? '新建待办' : '编辑待办'" width="min(600px, calc(100vw - 28px))" :close-on-click-modal="!saving" :close-on-press-escape="!saving" :show-close="!saving" append-to-body>
+    <el-dialog v-model="dialogVisible" :title="editingId === null ? '新建待办' : '编辑待办'" width="min(680px, calc(100vw - 28px))" :close-on-click-modal="!saving" :close-on-press-escape="!saving" :show-close="!saving" append-to-body>
       <el-form :model="form" label-position="top" :disabled="saving" @submit.prevent="save">
         <el-form-item label="标题" :error="errors.title" required>
           <el-input v-model="form.title" maxlength="200" show-word-limit placeholder="接下来要做什么？" @input="errors.title = ''" />
@@ -347,26 +434,76 @@ onBeforeUnmount(() => {
         <el-form-item label="内容（选填）" :error="errors.content">
           <el-input v-model="form.content" type="textarea" :rows="5" maxlength="10000" show-word-limit placeholder="补充说明或备忘内容" @input="errors.content = ''" />
         </el-form-item>
-        <el-form-item :label="form.reminder_repeat === 'once' ? '到期时间（选填）' : '首次提醒时间'" :error="errors.due_at">
-          <el-date-picker v-model="form.due_at" type="datetime" format="YYYY-MM-DD HH:mm" placeholder="选择到期时间" clearable aria-label="待办到期时间" @change="errors.due_at = ''" />
-          <p class="field-hint">时间选择框按设备时区 {{ localTimezone }} 显示。</p>
-        </el-form-item>
         <el-form-item label="邮件提醒">
-          <el-switch v-model="form.reminder_enabled" active-text="到期后提醒我" :disabled="saving || editingCompleted" aria-label="启用到期邮件提醒" @change="errors.due_at = ''" />
+          <el-switch v-model="form.reminder_enabled" active-text="按计划提醒我" :disabled="saving || editingCompleted" aria-label="启用到期邮件提醒" @change="errors.due_at = ''" />
           <p v-if="editingCompleted" class="field-hint">已完成的事项不再提醒，重新打开后可再次开启。</p>
-          <p v-else class="field-hint">开启后填写收件邮箱，并选择提醒频率。关闭提醒会停止后续发送。</p>
+          <p v-else class="field-hint">填写收件邮箱并设置提醒时间，关闭后停止后续发送。</p>
         </el-form-item>
-        <el-form-item label="重复频率" :error="errors.reminder_repeat || errors.reminder_timezone">
-          <el-select v-model="form.reminder_repeat" :disabled="!form.reminder_enabled || editingCompleted" aria-label="提醒重复频率" @change="errors.reminder_repeat = ''; errors.reminder_timezone = ''">
-            <el-option label="仅一次" value="once" />
-            <el-option label="每天" value="daily" />
-            <el-option label="每月" value="monthly" />
-            <el-option label="每年" value="yearly" />
-          </el-select>
-          <p v-if="form.reminder_repeat !== 'once'" class="field-hint">以首次时间为基准，按 {{ scheduleTimezone }} 时区重复。修改首次时间或频率后使用设备时区。</p>
-          <p v-if="form.reminder_repeat === 'monthly' || form.reminder_repeat === 'yearly'" class="field-hint">当月没有对应日期时，改为当月最后一天；之后仍按原日期提醒。</p>
-          <p v-if="form.reminder_repeat !== 'once'" class="field-hint">错过多次提醒时只补发一次，再安排下次提醒。</p>
-        </el-form-item>
+        <section v-if="form.reminder_repeat !== 'cron'" class="legacy-schedule">
+          <strong>已保留原提醒计划</strong>
+          <p>仅修改标题、内容或邮箱不会改变原计划。需要调整提醒时间时，可设置新的 crontab 规则。</p>
+          <el-button :disabled="saving || editingCompleted" @click="configureCron">修改提醒规则</el-button>
+          <p v-if="errors.due_at" class="save-error" role="alert">{{ errors.due_at }}</p>
+        </section>
+        <section v-else class="cron-schedule" aria-label="Crontab 提醒设置">
+          <el-form-item label="快捷设置">
+            <el-select v-model="builder.preset" aria-label="提醒快捷设置" :disabled="editingCompleted" @change="applyCronBuilder">
+              <el-option label="每天" value="daily" />
+              <el-option label="每周" value="weekly" />
+              <el-option label="每月" value="monthly" />
+              <el-option label="每年" value="yearly" />
+              <el-option label="每隔几分钟" value="interval" />
+              <el-option label="自定义表达式" value="custom" />
+            </el-select>
+          </el-form-item>
+          <div v-if="builder.preset !== 'custom'" class="cron-builder-fields">
+            <el-form-item v-if="builder.preset !== 'interval'" label="提醒时刻">
+              <el-time-picker v-model="builder.time" format="HH:mm" value-format="HH:mm" :clearable="false" :disabled="editingCompleted" aria-label="提醒时刻" @change="applyCronBuilder" />
+            </el-form-item>
+            <el-form-item v-if="builder.preset === 'weekly'" label="星期">
+              <el-checkbox-group v-model="builder.weekdays" :disabled="editingCompleted" aria-label="提醒星期" @change="applyCronBuilder">
+                <el-checkbox v-for="day in weekdays" :key="day.value" :value="day.value">{{ day.label }}</el-checkbox>
+              </el-checkbox-group>
+            </el-form-item>
+            <el-form-item v-if="builder.preset === 'yearly'" label="月份">
+              <el-select v-model="builder.month" :disabled="editingCompleted" aria-label="提醒月份" @change="applyCronBuilder">
+                <el-option v-for="month in 12" :key="month" :label="`${month} 月`" :value="month" />
+              </el-select>
+            </el-form-item>
+            <el-form-item v-if="builder.preset === 'monthly' || builder.preset === 'yearly'" label="日期">
+              <el-input-number v-model="builder.day" :min="1" :max="31" :precision="0" :disabled="editingCompleted" aria-label="每月提醒日期" @change="applyCronBuilder" />
+            </el-form-item>
+            <el-form-item v-if="builder.preset === 'interval'" label="间隔分钟数">
+              <el-input-number v-model="builder.interval" :min="1" :max="59" :precision="0" :disabled="editingCompleted" aria-label="提醒间隔分钟数" @change="applyCronBuilder" />
+              <p class="field-hint">从每小时第 0 分钟开始，按步长匹配分钟。</p>
+            </el-form-item>
+          </div>
+          <el-form-item label="Crontab 表达式" :error="errors.reminder_cron" :required="form.reminder_enabled">
+            <el-input v-model="form.reminder_cron" maxlength="128" class="cron-expression" :disabled="editingCompleted" placeholder="0 9 * * 1-5" aria-label="Crontab 表达式" @input="builder.preset = 'custom'; errors.reminder_cron = ''" />
+            <p class="field-hint">分 时 日 月 周，例如 <code>0 9 * * 1-5</code> 表示工作日 09:00。支持 *、范围、列表和步长，不包含秒或执行命令。</p>
+          </el-form-item>
+          <el-form-item label="执行时区" :error="errors.reminder_timezone">
+            <el-select v-model="form.reminder_timezone" filterable allow-create default-first-option :disabled="editingCompleted" aria-label="提醒执行时区" @change="errors.reminder_timezone = ''">
+              <el-option :label="`设备时区（${localTimezone}）`" :value="localTimezone" />
+              <el-option v-if="localTimezone !== 'Asia/Shanghai'" label="Asia/Shanghai（上海）" value="Asia/Shanghai" />
+              <el-option v-if="localTimezone !== 'UTC'" label="UTC" value="UTC" />
+              <el-option v-if="localTimezone !== 'America/New_York'" label="America/New_York（纽约）" value="America/New_York" />
+              <el-option v-if="localTimezone !== 'Europe/London'" label="Europe/London（伦敦）" value="Europe/London" />
+            </el-select>
+          </el-form-item>
+          <div class="cron-preview" aria-live="polite">
+            <strong>{{ cronDescription }}</strong>
+            <p v-if="previewLoading" class="field-hint">正在确认未来提醒时间…</p>
+            <p v-else-if="previewError" class="save-error" role="alert">{{ previewError }}</p>
+            <template v-else-if="cronPreview">
+              <p class="field-hint">接下来 5 次提醒 · {{ cronPreview.timezone }}</p>
+              <ol class="cron-preview-list"><li v-for="time in cronPreview.times" :key="time"><time :datetime="time">{{ formatPreviewTime(time) }}</time></li></ol>
+            </template>
+            <p v-else class="field-hint">开启邮件提醒后预览实际执行时间。</p>
+            <el-button v-if="form.reminder_enabled" size="small" :loading="previewLoading" :disabled="saving || editingCompleted" @click="fetchCronPreview">重新预览</el-button>
+          </div>
+          <p class="field-hint">不存在的日期会跳过该月或该年；日期和星期同时指定时，满足任一条件即可提醒。后台每分钟检查，漏过多次只补发一次。</p>
+        </section>
         <el-form-item :label="form.reminder_enabled ? '收件邮箱' : '收件邮箱（选填）'" :error="errors.reminder_email" :required="form.reminder_enabled">
           <el-input v-model="form.reminder_email" type="email" maxlength="254" autocomplete="email" placeholder="例如：name@example.com" clearable aria-label="提醒收件邮箱" @input="errors.reminder_email = ''" />
           <p class="field-hint">填写一个邮箱地址。关闭提醒会保留该地址，方便以后再次启用。</p>
@@ -376,7 +513,7 @@ onBeforeUnmount(() => {
       </el-form>
       <template #footer>
         <el-button :disabled="saving" @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" :disabled="saving" @click="save">{{ saveError ? '重试保存' : '保存待办' }}</el-button>
+        <el-button type="primary" :loading="saving" :disabled="saving || !previewValid" @click="save">{{ saveError ? '重试保存' : '保存待办' }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -409,6 +546,15 @@ onBeforeUnmount(() => {
 .pagination { display: flex; justify-content: flex-end; overflow-x: auto; margin-top: 18px; padding-bottom: 6px; }
 .field-hint { width: 100%; margin: 6px 0 0; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.7; }
 .save-error { margin: 12px 0 0; color: var(--el-color-danger); font-size: 13px; line-height: 1.7; }
+.cron-schedule, .legacy-schedule { margin-bottom: 20px; padding: 16px; border: 1px solid var(--el-border-color-lighter); border-radius: 8px; background: var(--el-fill-color-blank); }
+.legacy-schedule p { color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.7; }
+.cron-builder-fields { display: flex; gap: 12px; flex-wrap: wrap; }
+.cron-builder-fields > .el-form-item { flex: 1 1 180px; min-width: 0; }
+.cron-builder-fields :deep(.el-checkbox) { margin-right: 14px; }
+.cron-expression { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; }
+.cron-expression :deep(input) { font-family: inherit; }
+.cron-preview { padding: 12px; border-radius: 6px; background: var(--el-fill-color-light); font-size: 13px; }
+.cron-preview-list { margin: 8px 0 12px; padding-left: 24px; color: var(--el-text-color-regular); line-height: 1.9; font-variant-numeric: tabular-nums; }
 @media (max-width: 600px) {
   .page-heading { align-items: flex-start; }
   .page-actions { width: 100%; }

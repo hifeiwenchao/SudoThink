@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { prepareTodoInput } from './todos'
 
-const schedule = { reminder_repeat: 'once' as const, reminder_timezone: 'Asia/Shanghai' }
+const schedule = { reminder_repeat: 'once' as const, reminder_timezone: 'Asia/Shanghai', reminder_cron: '' }
 
 test('a reminder preserves the selected instant across time zones in its API payload', () => {
   const result = prepareTodoInput({ ...schedule,
@@ -84,5 +84,26 @@ test('unsupported recurrence or time zones cannot be submitted', () => {
     } as Parameters<typeof prepareTodoInput>[0])
     assert.equal(result.input, null)
     assert.ok(result.errors.reminder_repeat || result.errors.reminder_timezone)
+  }
+})
+
+test('crontab reminders use an expression without requiring a legacy date', () => {
+  const result = prepareTodoInput({ title: '工作日提醒', content: '', due_at: null,
+    reminder_enabled: true, reminder_email: 'owner@example.com', reminder_repeat: 'cron',
+    reminder_timezone: 'Asia/Shanghai', reminder_cron: '  0  9 * * 1-5  ',
+  } as Parameters<typeof prepareTodoInput>[0])
+  assert.equal(result.input?.reminder_repeat, 'cron')
+  assert.equal((result.input as unknown as { reminder_cron: string })?.reminder_cron, '0 9 * * 1-5')
+  assert.equal(result.input?.due_at, null)
+})
+
+test('crontab reminder input rejects empty, invalid and seconds expressions', () => {
+  for (const reminder_cron of ['', '0 0 9 * * *', '61 9 * * *', '0 9 * * * rm -rf /']) {
+    const result = prepareTodoInput({ title: '提醒', content: '', due_at: null,
+      reminder_enabled: true, reminder_email: 'owner@example.com', reminder_repeat: 'cron',
+      reminder_timezone: 'Asia/Shanghai', reminder_cron,
+    } as Parameters<typeof prepareTodoInput>[0])
+    assert.equal(result.input, null)
+    assert.ok((result.errors as Record<string, string>).reminder_cron)
   }
 })

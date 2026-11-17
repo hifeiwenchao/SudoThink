@@ -47,6 +47,7 @@ class Todo(TimestampMixin):
     reminder_enabled = fields.BooleanField(default=False, description="是否启用邮件提醒")
     reminder_email = fields.CharField(max_length=254, default="", description="提醒收件邮箱")
     reminder_repeat = fields.CharField(max_length=16, default="once", description="提醒重复频率")
+    reminder_cron = fields.CharField(max_length=128, default="", description="标准五段 crontab 提醒表达式")
     reminder_timezone = fields.CharField(max_length=64, default="Asia/Shanghai", description="提醒日历时区")
     reminder_next_run_at = TodoDatetimeField(null=True, description="本次计划提醒时间")
     reminder_status = fields.CharField(max_length=16, default="disabled", description="提醒发送状态")

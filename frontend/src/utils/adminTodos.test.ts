@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { JSDOM } from 'jsdom'
 import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
 import ts from 'typescript'
-import type { Todo, TodoInput, TodoPage } from '../api/todos'
+import type { Todo, TodoInput, TodoPage, TodoCronPreview } from '../api/todos'
 import type { TodoForm } from './todos'
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://admin.example.com/', pretendToBeVisual: true })
@@ -35,6 +35,7 @@ const script = compileScript(descriptor, { id: 'admin-todos-test' })
 const source = script.content
   .replace(/(['"])@\/api\/todos\1/g, JSON.stringify(pathToFileURL(apiTarget).href))
   .replace(/(['"])@\/utils\/todos\1/g, JSON.stringify(new URL('./todos.ts', import.meta.url).href))
+  .replace(/(['"])@\/utils\/todoCron\1/g, JSON.stringify(new URL('./todoCron.ts', import.meta.url).href))
 const target = `${folder}/AdminTodos.mjs`
 writeFileSync(target, compile(source))
 const template = compileTemplate({ source: descriptor.template!.content, filename: 'AdminTodos.vue', id: 'admin-todos-test', compilerOptions: { bindingMetadata: script.bindings, expressionPlugins: ['typescript'] } })
@@ -47,19 +48,27 @@ const todo = (): Todo => ({
   is_completed: false, reminder_enabled: true, reminder_status: 'pending', reminder_sent_at: null,
   reminder_email: 'owner@example.com',
   reminder_repeat: 'once', reminder_timezone: 'Asia/Shanghai', reminder_next_run_at: '2026-11-18T01:30:00Z',
+  reminder_cron: '',
   reminder_attempts: 0, reminder_error: '', created_at: '2026-11-17T00:00:00Z', updated_at: '2026-11-17T00:00:00Z',
 })
 type State = {
   form: TodoForm; list: Todo[]; dialogVisible: boolean; saveError: string; loading: boolean; canManage: boolean
   openCreate(): void; openEdit(item: Todo): void; load(): Promise<void>; save(): Promise<void>; toggleCompletion(item: Todo): Promise<void>
+  configureCron(): void; fetchCronPreview(): Promise<boolean>; cronPreview: TodoCronPreview | null; previewError: string
+  builder: { preset: string; time: string; weekdays: number[]; day: number; month: number; interval: number }
+  applyCronBuilder(): void
 }
 async function settle() { await flushPromises(); await nextTick(); await flushPromises(); await nextTick() }
-async function mount(options: { list?: () => Promise<TodoPage>; create?: (input: TodoInput) => Promise<Todo> } = {}) {
+async function mount(options: { list?: () => Promise<TodoPage>; create?: (input: TodoInput) => Promise<Todo>; preview?: (input: { reminder_cron: string; reminder_timezone: string }) => Promise<TodoCronPreview> } = {}) {
   let items = [todo()]
   const saves: TodoInput[] = []
   const completions: { id: number; completed: boolean }[] = []
   const updates: { id: number; input: TodoInput }[] = []
   Object.assign(globalThis, { __todoAdmin: {
+    async preview(input: { reminder_cron: string; reminder_timezone: string }) {
+      return options.preview?.(input) ?? { expression: input.reminder_cron, timezone: input.reminder_timezone,
+        times: ['2099-01-01T01:00:00Z', '2099-01-02T01:00:00Z', '2099-01-03T01:00:00Z', '2099-01-04T01:00:00Z', '2099-01-05T01:00:00Z'] }
+    },
     async list() { return options.list?.() ?? { items, total: items.length, page: 1, size: 10, email_configured: true } },
     async create(input: TodoInput) {
       saves.push(input)
@@ -115,9 +124,10 @@ test('failed saves preserve the editor and concurrent saves do not create duplic
   } })
   t.after(view.unmount)
   view.state.openCreate()
-  Object.assign(view.state.form, { title: ' 新提醒 ', content: '内容', due_at: new Date('2026-11-18T09:30:00+08:00'), reminder_enabled: true, reminder_email: ' friend@example.com ' })
+  Object.assign(view.state.form, { title: ' 新提醒 ', content: '内容', reminder_enabled: true, reminder_email: ' friend@example.com ' })
   const first = view.state.save()
   await view.state.save()
+  await settle()
   assert.equal(view.saves.length, 1)
   release()
   await first
@@ -127,7 +137,7 @@ test('failed saves preserve the editor and concurrent saves do not create duplic
   failing = false
   await view.state.save()
   assert.equal(view.state.dialogVisible, false)
-  assert.deepEqual(view.saves.at(-1), { title: '新提醒', content: '内容', due_at: '2026-11-18T01:30:00.000Z', reminder_enabled: true, reminder_email: 'friend@example.com', reminder_repeat: 'once', reminder_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone })
+  assert.deepEqual(view.saves.at(-1), { title: '新提醒', content: '内容', due_at: null, reminder_enabled: true, reminder_email: 'friend@example.com', reminder_repeat: 'cron', reminder_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, reminder_cron: '0 9 * * *' })
 })
 
 test('completion updates the list and reopening keeps email reminders off', async t => {
@@ -212,17 +222,18 @@ test('recurring reminders show their next occurrence instead of an overdue origi
   assert.equal(view.container.querySelector('.overdue-label'), null)
   view.state.openEdit(recurring)
   await settle()
-  assert.ok(document.body.querySelector('input[aria-label="提醒重复频率"]'))
+  assert.equal(document.body.querySelector('input[aria-label="提醒重复频率"]'), null)
+  assert.ok(document.body.textContent?.includes('已保留原提醒计划'))
   await view.state.save()
   assert.equal(view.updates[0]?.input.reminder_repeat, 'monthly')
   assert.equal(view.updates[0]?.input.reminder_timezone, 'Asia/Shanghai')
 })
 
-test('changing a recurring schedule uses the device time zone and a new todo starts with a single reminder', async t => {
+test('cron reminders use an explicit saved time zone and a new todo starts with crontab', async t => {
   const view = await mount()
   t.after(view.unmount)
   view.state.openCreate()
-  assert.equal(view.state.form.reminder_repeat, 'once')
+  assert.equal(view.state.form.reminder_repeat, 'cron')
   assert.equal(view.state.form.reminder_timezone, Intl.DateTimeFormat().resolvedOptions().timeZone)
   const item = { ...todo(), reminder_repeat: 'yearly', reminder_timezone: 'America/New_York' } as Todo
   view.state.openEdit(item)
@@ -230,7 +241,70 @@ test('changing a recurring schedule uses the device time zone and a new todo sta
   await view.state.save()
   assert.equal(view.updates[0]?.input.reminder_timezone, 'America/New_York')
   view.state.openEdit(item)
-  view.state.form.due_at = new Date('2027-02-28T10:00:00Z')
+  view.state.configureCron()
+  view.state.form.reminder_timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
   await view.state.save()
   assert.equal(view.updates[1]?.input.reminder_timezone, Intl.DateTimeFormat().resolvedOptions().timeZone)
+})
+
+test('new todos expose a friendly crontab schedule and omit the previous date and repeat controls', async t => {
+  const view = await mount()
+  t.after(view.unmount)
+  view.state.openCreate()
+  assert.equal(view.state.form.reminder_repeat, 'cron')
+  view.state.form.reminder_enabled = true
+  Object.assign(view.state.builder, { preset: 'weekly', time: '08:45', weekdays: [5, 1] })
+  view.state.applyCronBuilder()
+  assert.equal(view.state.form.reminder_cron, '45 8 * * 1,5')
+  await view.state.fetchCronPreview()
+  await settle()
+  assert.equal(document.body.querySelector('input[aria-label="待办到期时间"]'), null)
+  assert.equal(document.body.querySelector('input[aria-label="提醒重复频率"]'), null)
+  assert.ok(document.body.querySelector('input[aria-label="Crontab 表达式"]'))
+  assert.equal(document.body.querySelectorAll('.cron-preview-list li').length, 5)
+})
+
+test('legacy reminders retain their original plan until an explicit conversion to crontab', async t => {
+  const view = await mount()
+  t.after(view.unmount)
+  const item = { ...todo(), reminder_status: 'sent', reminder_sent_at: '2026-11-18T01:30:00Z' } as Todo
+  view.state.openEdit(item)
+  view.state.form.title = '只改标题'
+  await view.state.save()
+  assert.equal(view.updates[0]?.input.reminder_repeat, 'once')
+  assert.equal(view.updates[0]?.input.due_at, item.due_at!.replace('Z', '.000Z'))
+  view.state.openEdit(item)
+  view.state.configureCron()
+  await view.state.save()
+  assert.equal(view.updates[1]?.input.reminder_repeat, 'cron')
+  assert.equal(view.updates[1]?.input.due_at, null)
+  assert.equal(view.updates[1]?.input.reminder_cron, '0 9 * * *')
+})
+
+test('failed server schedule validation retains the form and prevents saving a cron reminder', async t => {
+  const view = await mount({ preview: async () => { throw new Error('invalid schedule') } })
+  t.after(view.unmount)
+  view.state.openCreate()
+  Object.assign(view.state.form, { title: '提醒', reminder_enabled: true, reminder_email: 'owner@example.com' })
+  await view.state.save()
+  assert.equal(view.saves.length, 0)
+  assert.equal(view.state.dialogVisible, true)
+  assert.ok(view.state.previewError)
+})
+
+test('a stale preview result cannot replace the result for a newer expression', async t => {
+  const pending: ((result: TodoCronPreview) => void)[] = []
+  const view = await mount({ preview: () => new Promise(resolve => pending.push(resolve)) })
+  t.after(view.unmount)
+  view.state.openCreate()
+  view.state.form.reminder_enabled = true
+  view.state.form.reminder_cron = '0 8 * * *'
+  const first = view.state.fetchCronPreview()
+  view.state.form.reminder_cron = '0 10 * * *'
+  const second = view.state.fetchCronPreview()
+  pending[1]!({ expression: '0 10 * * *', timezone: view.state.form.reminder_timezone, times: ['2099-01-01T02:00:00Z', '2099-01-02T02:00:00Z', '2099-01-03T02:00:00Z', '2099-01-04T02:00:00Z', '2099-01-05T02:00:00Z'] })
+  await second
+  pending[0]!({ expression: '0 8 * * *', timezone: view.state.form.reminder_timezone, times: ['2099-01-01T00:00:00Z', '2099-01-02T00:00:00Z', '2099-01-03T00:00:00Z', '2099-01-04T00:00:00Z', '2099-01-05T00:00:00Z'] })
+  await first
+  assert.equal(view.state.cronPreview?.expression, '0 10 * * *')
 })

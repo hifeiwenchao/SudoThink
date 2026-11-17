@@ -85,6 +85,7 @@ async def _upgrade_todos(connection) -> None:
     additions = {
         "reminder_email": "VARCHAR(254) NOT NULL DEFAULT '' COMMENT '提醒收件邮箱'",
         "reminder_repeat": "VARCHAR(16) NOT NULL DEFAULT 'once' COMMENT '提醒重复频率'",
+        "reminder_cron": "VARCHAR(128) NOT NULL DEFAULT '' COMMENT '标准五段 crontab 提醒表达式'",
         "reminder_timezone": "VARCHAR(64) NOT NULL DEFAULT 'Asia/Shanghai' COMMENT '提醒日历时区'",
         "reminder_next_run_at": "DATETIME(6) NULL COMMENT '本次计划提醒时间'",
     }

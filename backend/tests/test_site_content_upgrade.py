@@ -15,7 +15,7 @@ class MySQLMetadata:
         self.weight = upgraded
         self.columns = {"author_id": {"COLUMN_NAME": "author_id", "IS_NULLABLE": "YES" if upgraded else "NO", "COLUMN_TYPE": "int"}}
         self.todo_columns = {name: {"COLUMN_NAME": name} for name in (
-            "reminder_email", "reminder_repeat", "reminder_timezone", "reminder_next_run_at",
+            "reminder_email", "reminder_repeat", "reminder_timezone", "reminder_next_run_at", "reminder_cron",
         )} if upgraded else {}
         self.todo_records = []
         if upgraded:
@@ -53,7 +53,7 @@ class MySQLMetadata:
             self.weight = True
             return
         if "`todos`" in sql:
-            for name in ("reminder_email", "reminder_repeat", "reminder_timezone", "reminder_next_run_at"):
+            for name in ("reminder_email", "reminder_repeat", "reminder_timezone", "reminder_next_run_at", "reminder_cron"):
                 if f"ADD COLUMN `{name}`" in sql:
                     self.todo_columns[name] = {"COLUMN_NAME": name}
             return
@@ -151,6 +151,25 @@ class SiteContentUpgradeTests(unittest.IsolatedAsyncioTestCase):
         await self.upgrade_with(connection)
         self.assertEqual(connection.scripts, [])
         self.assertEqual(connection.todo_records[0]["reminder_next_run_at"], "2026-11-17 08:00:00")
+
+    async def test_cron_upgrade_adds_only_expression_and_preserves_existing_schedules(self):
+        connection = MySQLMetadata(upgraded=True)
+        del connection.todo_columns["reminder_cron"]
+        connection.todo_records = [{
+            "reminder_enabled": True, "is_completed": False, "reminder_status": "pending",
+            "due_at": "2026-11-01 09:00:00", "reminder_repeat": "monthly",
+            "reminder_next_run_at": "2026-12-01 09:00:00",
+        }]
+        original = [dict(row) for row in connection.todo_records]
+        await self.upgrade_with(connection)
+        self.assertIn("reminder_cron", connection.todo_columns)
+        self.assertEqual(connection.todo_records, original)
+        self.assertEqual(len(connection.scripts), 1)
+        self.assertIn("ADD COLUMN `reminder_cron` VARCHAR(128) NOT NULL DEFAULT ''", connection.scripts[0])
+        self.assertNotIn("MODIFY COLUMN", connection.scripts[0])
+        await self.upgrade_with(connection)
+        self.assertEqual(len(connection.scripts), 1)
+        self.assertEqual(connection.todo_records, original)
 
     async def test_review_upgrade_preserves_legacy_approvals_and_is_idempotent(self):
         connection = MySQLMetadata(upgraded=True)

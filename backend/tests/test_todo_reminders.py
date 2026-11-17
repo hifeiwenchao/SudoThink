@@ -314,6 +314,51 @@ class TodoReminderTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(todo.reminder_sent_at, finished)
         self.assertEqual(todo.reminder_next_run_at, NOW + timedelta(days=2))
 
+    async def test_cron_without_legacy_date_rearms_at_next_matching_weekday(self):
+        todo = await self.create(
+            due_at=None, reminder_repeat="cron", reminder_cron="0 9 * * MON-FRI",
+            reminder_next_run_at=NOW, reminder_next_attempt_at=NOW,
+        )
+        await self.scan()
+        await todo.refresh_from_db()
+        expected = datetime.fromisoformat("2026-11-18T09:00:00+08:00")
+        self.assertEqual(todo.reminder_next_run_at, expected)
+        self.assertEqual(todo.reminder_next_attempt_at, expected)
+        self.assertEqual(todo.reminder_status, "pending")
+        self.assertEqual(todo.reminder_attempts, 0)
+        self.assertIsNone(todo.due_at)
+        await self.scan()
+        self.assertEqual(len(self.messages), 1)
+        await self.scan(expected)
+        self.assertEqual(len(self.messages), 2)
+        self.assertIn("2026-11-18 09:00", self.messages[1][1])
+
+    async def test_cron_downtime_only_catches_up_once_before_next_future_match(self):
+        todo = await self.create(
+            due_at=None, reminder_repeat="cron", reminder_cron="*/15 * * * *",
+            reminder_next_run_at=NOW - timedelta(days=2), reminder_next_attempt_at=NOW - timedelta(days=2),
+        )
+        await self.scan()
+        await self.scan(NOW + timedelta(minutes=1))
+        await todo.refresh_from_db()
+        self.assertEqual(len(self.messages), 1)
+        self.assertEqual(todo.reminder_next_run_at, NOW + timedelta(minutes=15))
+
+    async def test_cron_delivery_retry_preserves_the_occurrence_until_success(self):
+        todo = await self.create(
+            due_at=None, reminder_repeat="cron", reminder_cron="0 9 * * *",
+            reminder_next_run_at=NOW, reminder_next_attempt_at=NOW,
+        )
+        with patch.object(self.reminders, "send_mail", side_effect=MailDeliveryError("发送失败")):
+            await self.scan()
+        await todo.refresh_from_db()
+        self.assertEqual(todo.reminder_next_run_at, NOW)
+        self.assertEqual(todo.reminder_attempts, 1)
+        await self.scan(NOW + timedelta(minutes=1))
+        await todo.refresh_from_db()
+        self.assertEqual(todo.reminder_next_run_at, datetime.fromisoformat("2026-11-18T09:00:00+08:00"))
+        self.assertEqual(todo.reminder_attempts, 0)
+
 
 class ShanghaiNaiveStorageReminderTests(TodoReminderTests):
     """Production uses local naive DB timestamps, unlike Tortoise's default tests."""

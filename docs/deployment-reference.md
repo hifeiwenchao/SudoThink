@@ -111,7 +111,7 @@ docker compose logs --tail=20 worker
 
 ## 待办邮件提醒
 
-在管理后台“待办事项”新增事项、设置提醒时间、选择单次或每天/每月/每年重复，并打开邮件提醒。发送使用 SMTP，由 worker 执行，需同时运行 RabbitMQ、worker 和 beat。默认每分钟检查一次；服务恢复后漏过的重复提醒只补发一次，再继续后续计划。
+在管理后台“待办事项”新增事项、打开邮件提醒，用快捷设置或五段 crontab 配置时间并核对未来 5 次预览。发送使用 SMTP，由 worker 执行，需同时运行 RabbitMQ、worker 和 beat。默认每分钟检查一次；服务恢复后漏过的重复提醒只补发一次，再继续后续计划。
 
 腾讯企业邮箱可使用以下配置，先在邮箱安全设置中允许 SMTP 客户端登录；账号和密码按企业邮箱实际要求填写，启用客户端专用密码时使用专用密码：
 
@@ -130,7 +130,7 @@ SMTP_TIMEOUT_SECONDS=15
 
 未填写完整 SMTP 配置时可以管理待办，但不会发送或消耗重试次数；没有填写收件邮箱的旧待办也会等待补充邮箱。配置完成后，列表中的提示会消失；创建一个填写了收件邮箱且即将到期的测试事项，检查对应收件箱和列表的“已发送”状态，可验证实际连接与认证。配置检查本身不连接 SMTP。
 
-首次安装使用 `init_db.py`；已有安装先执行 `upgrade_site_content.py` 创建待办表并补齐重复提醒字段，再启动新版后端和 worker。原有事项默认保持单次提醒。Docker 修改 `.env` 后执行 `docker compose up -d --force-recreate backend worker beat`；直接本地运行时重启后端、worker 和 beat。提醒状态查看与操作见[功能说明](./features.md#待办事项)。
+首次安装使用 `init_db.py`；已有安装先执行 `upgrade_site_content.py` 补齐待办表与 crontab 表达式字段，再启动新版后端和 worker。原有提醒保留原计划，无需新增环境变量。Docker 修改 `.env` 后执行 `docker compose up -d --force-recreate backend worker beat`；直接本地运行时重启后端、worker 和 beat。提醒状态查看与操作见[功能说明](./features.md#待办事项)。
 
 ## ICP 备案信息
 

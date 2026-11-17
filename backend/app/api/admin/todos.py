@@ -10,9 +10,10 @@ from tortoise.transactions import in_transaction
 from app.core.exceptions import ForbiddenError, NotFoundError, ValidationError
 from app.core.mail import smtp_ready
 from app.core.response import success
+from app.core.todo_cron import cron_occurrences, next_cron_at
 from app.middlewares.auth import login_required
 from app.models.todo import Todo
-from app.schemas.todo import TodoCompletionIn, TodoIn
+from app.schemas.todo import TodoCompletionIn, TodoCronPreviewIn, TodoIn
 
 
 bp = Blueprint("admin_todos", url_prefix="/todos")
@@ -63,6 +64,7 @@ def todo_dict(todo):
         "is_completed": todo.is_completed, "reminder_enabled": todo.reminder_enabled,
         "reminder_email": todo.reminder_email,
         "reminder_repeat": todo.reminder_repeat,
+        "reminder_cron": todo.reminder_cron,
         "reminder_timezone": todo.reminder_timezone,
         "reminder_next_run_at": todo.reminder_next_run_at.isoformat() if todo.reminder_next_run_at else None,
         "reminder_status": todo.reminder_status,
@@ -85,7 +87,15 @@ def _reset_reminder(todo, *, reset_schedule=False):
         todo.reminder_sent_at = None
     if todo.reminder_enabled and not todo.is_completed:
         if reset_schedule or todo.reminder_next_run_at is None:
-            todo.reminder_next_run_at = todo.due_at
+            if todo.reminder_repeat == "cron":
+                try:
+                    todo.reminder_next_run_at = next_cron_at(
+                        todo.reminder_cron, todo.reminder_timezone, after=datetime.now(timezone.utc),
+                    )
+                except ValueError as exc:
+                    raise ValidationError(str(exc)) from None
+            else:
+                todo.reminder_next_run_at = todo.due_at
         todo.reminder_status = "pending"
         todo.reminder_next_attempt_at = todo.reminder_next_run_at
     else:
@@ -147,6 +157,23 @@ async def create_todo(request: Request):
     return success(todo_dict(todo), message="created")
 
 
+@bp.post("/preview")
+@login_required
+async def preview_todo_cron(request: Request):
+    _ensure_admin(request)
+    payload = _payload(request, TodoCronPreviewIn)
+    try:
+        times = cron_occurrences(
+            payload.reminder_cron, payload.reminder_timezone, after=datetime.now(timezone.utc), count=5,
+        )
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from None
+    return success({
+        "expression": payload.reminder_cron, "timezone": payload.reminder_timezone,
+        "times": [value.isoformat() for value in times],
+    })
+
+
 @bp.put("/<todo_id:int>")
 @login_required
 async def update_todo(request: Request, todo_id: int):
@@ -160,6 +187,7 @@ async def update_todo(request: Request, todo_id: int):
             todo.due_at != payload.due_at
             or todo.reminder_repeat != payload.reminder_repeat
             or todo.reminder_timezone != payload.reminder_timezone
+            or todo.reminder_cron != payload.reminder_cron
             or (not todo.reminder_enabled and payload.reminder_enabled)
         )
         reschedule = (

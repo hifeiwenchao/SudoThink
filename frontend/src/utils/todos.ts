@@ -1,4 +1,5 @@
 import type { TodoInput, TodoRepeat } from '../api/todos'
+import { normalizeTodoCron } from './todoCron'
 
 export interface TodoForm {
   title: string
@@ -8,9 +9,10 @@ export interface TodoForm {
   reminder_email: string
   reminder_repeat: TodoRepeat
   reminder_timezone: string
+  reminder_cron: string
 }
 
-export type TodoFormErrors = Partial<Record<'title' | 'content' | 'due_at' | 'reminder_email' | 'reminder_repeat' | 'reminder_timezone', string>>
+export type TodoFormErrors = Partial<Record<'title' | 'content' | 'due_at' | 'reminder_email' | 'reminder_repeat' | 'reminder_timezone' | 'reminder_cron', string>>
 
 export function deviceTimezone() {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai'
@@ -37,12 +39,17 @@ export function prepareTodoInput(form: TodoForm): { input: TodoInput | null; err
   const hasDate = form.due_at !== null
   const validDate = form.due_at instanceof Date && Number.isFinite(form.due_at.getTime())
   if (hasDate && !validDate) errors.due_at = '请选择有效的到期时间'
-  else if (form.reminder_enabled && !validDate) errors.due_at = '启用邮件提醒时，请先设置到期时间'
+  else if (form.reminder_enabled && form.reminder_repeat !== 'cron' && !validDate) errors.due_at = '请设置新的提醒规则'
   if (form.reminder_enabled && !reminderEmail) errors.reminder_email = '请填写收件邮箱'
   else if (/\r|\n/.test(form.reminder_email) || reminderEmail.length > 254 || (reminderEmail && !validMailbox(reminderEmail))) {
     errors.reminder_email = '请填写有效的单个邮箱地址，不能包含姓名、多个地址或换行'
   }
-  if (!['once', 'daily', 'monthly', 'yearly'].includes(form.reminder_repeat)) errors.reminder_repeat = '请选择有效的重复频率'
+  if (!['once', 'daily', 'monthly', 'yearly', 'cron'].includes(form.reminder_repeat)) errors.reminder_repeat = '请选择有效的提醒规则'
+  let cron = form.reminder_cron?.trim() || ''
+  if (form.reminder_repeat === 'cron' && (form.reminder_enabled || cron)) {
+    try { cron = normalizeTodoCron(cron) }
+    catch (cause) { errors.reminder_cron = cause instanceof Error ? cause.message : '请填写有效的 crontab 表达式' }
+  }
   try {
     if (!form.reminder_timezone || form.reminder_timezone.length > 64) throw new Error('invalid timezone')
     new Intl.DateTimeFormat('zh-CN', { timeZone: form.reminder_timezone }).format()
@@ -56,5 +63,6 @@ export function prepareTodoInput(form: TodoForm): { input: TodoInput | null; err
     reminder_email: reminderEmail,
     reminder_repeat: form.reminder_repeat,
     reminder_timezone: form.reminder_timezone,
+    reminder_cron: cron,
   } }
 }

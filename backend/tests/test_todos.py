@@ -122,6 +122,71 @@ class TodoTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(values=values), self.assertRaises(ValidationError):
                 await self.create(**values)
 
+    async def test_cron_reminder_without_deadline_starts_at_next_matching_minute(self):
+        now = datetime.fromisoformat("2026-11-17T00:15:00Z")
+        with patch.object(self.api, "datetime") as clock:
+            clock.now.return_value = now
+            saved = await self.create(
+                due_at=None, reminder_repeat="cron", reminder_cron="  0   9 * * MON-FRI  ",
+            )
+        expected = datetime.fromisoformat("2026-11-17T01:00:00Z")
+        self.assertIsNone(saved["due_at"])
+        self.assertEqual(saved["reminder_repeat"], "cron")
+        self.assertEqual(saved["reminder_cron"], "0 9 * * MON-FRI")
+        self.assertEqual(datetime.fromisoformat(saved["reminder_next_run_at"]), expected)
+        self.assertEqual((await self.Todo.get(id=saved["id"])).reminder_next_attempt_at, expected)
+
+    async def test_cron_invalid_or_unreachable_rules_are_not_stored(self):
+        for expression in ("", " ", "0 9 * *", "0 0 9 * * *", "61 9 * * *",
+                           "0 9 30 2 *", "@daily", "0 9 * * * echo hello", "x" * 129):
+            with self.subTest(expression=expression), self.assertRaises(ValidationError):
+                await self.create(due_at=None, reminder_repeat="cron", reminder_cron=expression)
+        self.assertEqual(await self.Todo.all().count(), 0)
+        await self.create(due_at=None, reminder_repeat="cron", reminder_cron="", reminder_enabled=False)
+
+    async def test_cron_content_and_recipient_edits_preserve_schedule_and_history(self):
+        payload = self.payload(due_at=None, reminder_repeat="cron", reminder_cron="0 9 * * *")
+        saved = self.data(await self.api.create_todo(self.request(self.admin, payload)))
+        next_run = self.due + timedelta(days=1)
+        await self.Todo.filter(id=saved["id"]).update(
+            reminder_next_run_at=next_run, reminder_next_attempt_at=next_run, reminder_sent_at=self.due,
+        )
+        for changes in ({"title": "更改内容"}, {"reminder_email": "new@example.com"}):
+            changed = self.data(await self.api.update_todo(self.request(self.admin, payload | changes), saved["id"]))
+            self.assertEqual(datetime.fromisoformat(changed["reminder_next_run_at"]), next_run)
+            self.assertEqual(datetime.fromisoformat(changed["reminder_sent_at"]), self.due)
+        now = datetime.fromisoformat("2026-11-17T02:00:00Z")
+        with patch.object(self.api, "datetime") as clock:
+            clock.now.return_value = now
+            changed = self.data(await self.api.update_todo(self.request(
+                self.admin, payload | {"reminder_cron": "0 10 * * *"},
+            ), saved["id"]))
+        self.assertEqual(datetime.fromisoformat(changed["reminder_next_run_at"]), datetime.fromisoformat("2026-11-18T02:00:00Z"))
+        self.assertIsNone(changed["reminder_sent_at"])
+
+    async def test_cron_preview_is_authoritative_and_does_not_create_todos(self):
+        now = datetime.fromisoformat("2026-11-17T00:15:00Z")
+        with patch.object(self.api, "datetime") as clock:
+            clock.now.return_value = now
+            preview = self.data(await self.api.preview_todo_cron(self.request(self.admin, {
+                "reminder_cron": "0 9 * * 1-5", "reminder_timezone": "Asia/Shanghai",
+            })))
+        self.assertEqual(preview["expression"], "0 9 * * 1-5")
+        self.assertEqual(preview["timezone"], "Asia/Shanghai")
+        self.assertEqual([datetime.fromisoformat(value) for value in preview["times"]], [
+            datetime.fromisoformat(value) for value in (
+                "2026-11-17T01:00:00Z", "2026-11-18T01:00:00Z", "2026-11-19T01:00:00Z",
+                "2026-11-20T01:00:00Z", "2026-11-23T01:00:00Z",
+            )
+        ])
+        self.assertEqual(await self.Todo.all().count(), 0)
+        for payload in (
+            {}, {"reminder_cron": "0 9 30 2 *"}, {"reminder_cron": "0 9 * * *", "extra": 1},
+            {"reminder_cron": "0 9 * * *", "reminder_timezone": "Unknown/Zone"},
+        ):
+            with self.subTest(payload=payload), self.assertRaises(ValidationError):
+                await self.api.preview_todo_cron(self.request(self.admin, payload))
+
     async def test_recurring_edits_preserve_next_occurrence_until_schedule_changes(self):
         saved = await self.create(reminder_repeat="monthly")
         next_run = self.due + timedelta(days=31)
@@ -218,6 +283,7 @@ class TodoTests(unittest.IsolatedAsyncioTestCase):
         saved = await self.create()
         actions = [
             (self.api.list_todos, None, ()),
+            (self.api.preview_todo_cron, {"reminder_cron": "0 9 * * *"}, ()),
             (self.api.create_todo, self.payload(), ()),
             (self.api.update_todo, self.payload(), (saved["id"],)),
             (self.api.set_todo_completion, {"is_completed": True}, (saved["id"],)),
@@ -475,6 +541,7 @@ class TodoTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn(("api/admin/todos/<todo_id:int>", method), routes)
         self.assertIn(("api/admin/todos/<todo_id:int>/completion", "PATCH"), routes)
         self.assertIn(("api/admin/todos/<todo_id:int>/retry", "POST"), routes)
+        self.assertIn(("api/admin/todos/preview", "POST"), routes)
         self.assertFalse(any(path.startswith("api/todos") for path, _ in routes))
 
 
