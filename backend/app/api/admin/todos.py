@@ -11,9 +11,10 @@ from app.core.exceptions import ForbiddenError, NotFoundError, ValidationError
 from app.core.mail import smtp_ready
 from app.core.response import success
 from app.core.todo_cron import cron_occurrences, next_cron_at
+from app.core.todo_skip_period import skip_period_schedule
 from app.middlewares.auth import login_required
 from app.models.todo import Todo
-from app.schemas.todo import TodoCompletionIn, TodoCronPreviewIn, TodoIn
+from app.schemas.todo import TodoCompletionIn, TodoCronPreviewIn, TodoIn, TodoSkipPeriodIn
 
 
 bp = Blueprint("admin_todos", url_prefix="/todos")
@@ -111,6 +112,13 @@ async def _locked_todo(user_id, todo_id, connection):
     return todo
 
 
+def _skip_period_schedule(todo, period):
+    try:
+        return skip_period_schedule(todo, period, now=datetime.now(timezone.utc))
+    except (ValueError, OverflowError) as exc:
+        raise ValidationError(str(exc)) from None
+
+
 @bp.get("")
 @login_required
 async def list_todos(request: Request):
@@ -172,6 +180,51 @@ async def preview_todo_cron(request: Request):
         "expression": payload.reminder_cron, "timezone": payload.reminder_timezone,
         "times": [value.isoformat() for value in times],
     })
+
+
+@bp.post("/<todo_id:int>/skip-period/preview")
+@login_required
+async def preview_todo_skip_period(request: Request, todo_id: int):
+    _ensure_admin(request)
+    payload = _payload(request, TodoSkipPeriodIn)
+    todo = await Todo.get_or_none(id=todo_id, owner_id=request.ctx.user.id)
+    if todo is None:
+        raise NotFoundError("待办事项不存在")
+    boundary, next_run = _skip_period_schedule(todo, payload.period)
+    return success({
+        "period": payload.period, "timezone": todo.reminder_timezone,
+        "period_ends_at": boundary.isoformat(), "next_run_at": next_run.isoformat(),
+        "reminder_revision": todo.reminder_revision,
+    })
+
+
+@bp.post("/<todo_id:int>/skip-period")
+@login_required
+async def skip_todo_period(request: Request, todo_id: int):
+    _ensure_admin(request)
+    payload = _payload(request, TodoSkipPeriodIn)
+    async with in_transaction() as connection:
+        todo = await _locked_todo(request.ctx.user.id, todo_id, connection)
+        boundary, next_run = _skip_period_schedule(todo, payload.period)
+        if (
+            (payload.expected_period_ends_at is not None
+                and payload.expected_period_ends_at.astimezone(timezone.utc)
+                != boundary.astimezone(timezone.utc))
+            or (payload.expected_reminder_revision is not None
+                and payload.expected_reminder_revision != todo.reminder_revision)
+            or (payload.expected_next_run_at is not None
+                and payload.expected_next_run_at.astimezone(timezone.utc)
+                != next_run.astimezone(timezone.utc))
+        ):
+            raise ValidationError("预览已过期，请重新确认")
+        _invalidate_claim(todo)
+        todo.reminder_next_run_at = next_run
+        todo.reminder_next_attempt_at = next_run
+        todo.reminder_attempts = 0
+        todo.reminder_error = ""
+        todo.reminder_status = "pending"
+        await todo.save(using_db=connection)
+    return success(todo_dict(todo), message="updated")
 
 
 @bp.put("/<todo_id:int>")

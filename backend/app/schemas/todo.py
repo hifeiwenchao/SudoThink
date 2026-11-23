@@ -105,3 +105,12 @@ class TodoCompletionIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     is_completed: bool = Field(strict=True)
+
+
+class TodoSkipPeriodIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    period: Literal["day", "week", "month", "year"]
+    expected_period_ends_at: AwareDatetime | None = None
+    expected_reminder_revision: int | None = Field(default=None, strict=True, ge=1)
+    expected_next_run_at: AwareDatetime | None = None

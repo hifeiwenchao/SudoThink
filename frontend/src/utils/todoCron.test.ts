@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { buildTodoCron, describeTodoCron, normalizeTodoCron, type TodoCronBuilder } from './todoCron'
+import { buildTodoCron, describeTodoCron, normalizeTodoCron, recommendedTodoSkipPeriod, type TodoCronBuilder } from './todoCron'
 
 const builder = (overrides: Partial<TodoCronBuilder> = {}): TodoCronBuilder => ({
   preset: 'daily', time: '09:30', weekdays: [1], day: 15, month: 6, interval: 15, ...overrides,
@@ -50,4 +50,45 @@ test('rule descriptions explain weekday and time while malformed expressions use
   assert.match(description, /09:30/)
   assert.match(description, /星期一|星期五|周一|周五/)
   assert.equal(describeTodoCron('untrusted expression'), '自定义提醒')
+})
+
+test('skip period recommendations follow the widest restricted calendar field', () => {
+  const cases = [
+    ['0 9 1,2,3 * *', 'month'],
+    ['0 9 * JAN,MAR *', 'year'],
+    ['0 9 */2 * *', 'month'],
+    ['0 9 * */2 *', 'year'],
+    ['0 9 * * MON-FRI', 'week'],
+    ['0 9 * * 7', 'week'],
+    ['0 9 * * */2', 'week'],
+    ['0 9 1 * MON', 'month'],
+    ['0 9 1 JUN MON', 'year'],
+    ['0 9 * * *', 'day'],
+    ['*/15 8-18 * * *', 'day'],
+  ] as const
+  for (const [expression, expected] of cases) {
+    assert.equal(recommendedTodoSkipPeriod({ reminder_repeat: 'cron', reminder_cron: expression }), expected, expression)
+  }
+})
+
+test('full calendar ranges, lists and unit steps do not restrict skip period recommendations', () => {
+  for (const expression of [
+    '0 9 1-31 1-12 0-6',
+    '0 9 */1 */1 */1',
+    '0 9 * JAN-DEC SUN-SAT',
+    '0 9 * * 1-7',
+    '0 9 * * 0,1,2,3,4,5,6,7',
+    '0 9 1-15,16-31 1-6,7-12 0-3,4-6',
+  ]) {
+    assert.equal(recommendedTodoSkipPeriod({ reminder_repeat: 'cron', reminder_cron: expression }), 'day', expression)
+  }
+})
+
+test('legacy reminders recommend their existing interval and invalid cron safely defaults to day', () => {
+  for (const [repeat, expected] of [['daily', 'day'], ['monthly', 'month'], ['yearly', 'year'], ['once', 'day']] as const) {
+    assert.equal(recommendedTodoSkipPeriod({ reminder_repeat: repeat, reminder_cron: '' }), expected)
+  }
+  for (const expression of ['invalid', '0 9 L * *', '0 9 31 4 *']) {
+    assert.equal(recommendedTodoSkipPeriod({ reminder_repeat: 'cron', reminder_cron: expression }), 'day', expression)
+  }
 })

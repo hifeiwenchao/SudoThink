@@ -3,6 +3,7 @@ import http from './http'
 export type TodoReminderStatus = 'disabled' | 'pending' | 'sending' | 'sent' | 'failed'
 export type TodoFilter = 'all' | 'pending' | 'completed' | 'overdue'
 export type TodoRepeat = 'once' | 'daily' | 'monthly' | 'yearly' | 'cron'
+export type TodoSkipPeriod = 'day' | 'week' | 'month' | 'year'
 
 export interface Todo {
   id: number
@@ -41,6 +42,14 @@ export interface TodoCronPreview {
   times: string[]
 }
 
+export interface TodoSkipPreview {
+  period: TodoSkipPeriod
+  timezone: string
+  period_ends_at: string
+  next_run_at: string
+  reminder_revision: number
+}
+
 export interface TodoPage {
   items: Todo[]
   total: number
@@ -50,6 +59,17 @@ export interface TodoPage {
 }
 
 export const todosApi = {
+  previewSkipPeriod(id: number, period: TodoSkipPeriod, signal?: AbortSignal) {
+    return http.post<unknown, TodoSkipPreview>(`/admin/todos/${id}/skip-period/preview`, { period }, { signal })
+  },
+  skipPeriod(id: number, period: TodoSkipPeriod, preview: TodoSkipPreview) {
+    return http.post<unknown, Todo>(`/admin/todos/${id}/skip-period`, {
+      period,
+      expected_period_ends_at: preview.period_ends_at,
+      expected_reminder_revision: preview.reminder_revision,
+      expected_next_run_at: preview.next_run_at,
+    })
+  },
   preview(input: { reminder_cron: string; reminder_timezone: string }, signal?: AbortSignal) {
     return http.post<unknown, TodoCronPreview>('/admin/todos/preview', input, { signal })
   },

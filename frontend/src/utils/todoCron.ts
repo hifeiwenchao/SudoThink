@@ -1,6 +1,7 @@
 import { CronExpressionParser } from 'cron-parser'
 import cronstrue from 'cronstrue'
 import 'cronstrue/locales/zh_CN'
+import type { Todo, TodoSkipPeriod } from '../api/todos'
 
 export type TodoCronPreset = 'daily' | 'weekly' | 'monthly' | 'yearly' | 'interval' | 'custom'
 
@@ -86,4 +87,22 @@ export function describeTodoCron(expression: string): string {
   } catch {
     return '自定义提醒'
   }
+}
+
+export function recommendedTodoSkipPeriod(item: Pick<Todo, 'reminder_repeat' | 'reminder_cron'>): TodoSkipPeriod {
+  if (item.reminder_repeat === 'yearly') return 'year'
+  if (item.reminder_repeat === 'monthly') return 'month'
+  if (item.reminder_repeat !== 'cron') return 'day'
+  try {
+    const { fields } = CronExpressionParser.parse(normalizeTodoCron(item.reminder_cron), {
+      currentDate: '2024-01-01T00:00:00Z', tz: 'UTC',
+    })
+    if (fields.month.values.length < 12) return 'year'
+    if (fields.dayOfMonth.values.length < 31) return 'month'
+    // Both 0 and 7 represent Sunday in crontab.
+    if (new Set(fields.dayOfWeek.values.map(value => Number(value) % 7)).size < 7) return 'week'
+  } catch {
+    return 'day'
+  }
+  return 'day'
 }

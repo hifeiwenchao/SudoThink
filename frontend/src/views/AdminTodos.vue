@@ -2,9 +2,9 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
-import { todosApi, type Todo, type TodoFilter, type TodoCronPreview } from '@/api/todos'
+import { todosApi, type Todo, type TodoFilter, type TodoCronPreview, type TodoSkipPeriod, type TodoSkipPreview } from '@/api/todos'
 import { deviceTimezone, prepareTodoInput, type TodoForm, type TodoFormErrors } from '@/utils/todos'
-import { buildTodoCron, describeTodoCron, normalizeTodoCron, type TodoCronBuilder } from '@/utils/todoCron'
+import { buildTodoCron, describeTodoCron, normalizeTodoCron, recommendedTodoSkipPeriod, type TodoCronBuilder } from '@/utils/todoCron'
 
 const list = ref<Todo[]>([])
 const total = ref(0)
@@ -24,6 +24,19 @@ const editingId = ref<number | null>(null)
 const editingCompleted = ref(false)
 const saving = ref(false)
 const saveError = ref('')
+const skipDialogVisible = ref(false)
+const skipTarget = ref<Todo | null>(null)
+const skipPeriod = ref<TodoSkipPeriod>('day')
+const skipPreview = ref<TodoSkipPreview | null>(null)
+const skipPreviewLoading = ref(false)
+const skipPreviewError = ref('')
+const skipSaving = ref(false)
+const skipError = ref('')
+const skipPeriods: { value: TodoSkipPeriod; label: string }[] = [
+  { value: 'day', label: '本日' }, { value: 'week', label: '本周' },
+  { value: 'month', label: '本月' }, { value: 'year', label: '本年' },
+]
+const skipPreviewValid = computed(() => skipDialogVisible.value && !!skipPreview.value && skipPreview.value.period === skipPeriod.value && !skipPreviewLoading.value && !skipPreviewError.value)
 const localTimezone = deviceTimezone()
 const form = reactive<TodoForm>({ title: '', content: '', due_at: null, reminder_enabled: false, reminder_email: '', reminder_repeat: 'cron', reminder_timezone: localTimezone, reminder_cron: '0 9 * * *' })
 const builder = reactive<TodoCronBuilder>({ preset: 'daily', time: '09:00', weekdays: [1, 2, 3, 4, 5], day: 1, month: 1, interval: 15 })
@@ -38,7 +51,7 @@ const cronDescription = computed(() => describeTodoCron(form.reminder_cron))
 const weekdays = [{ value: 1, label: '周一' }, { value: 2, label: '周二' }, { value: 3, label: '周三' }, { value: 4, label: '周四' }, { value: 5, label: '周五' }, { value: 6, label: '周六' }, { value: 0, label: '周日' }]
 const errors = reactive<TodoFormErrors>({})
 const now = ref(Date.now())
-const busy = computed(() => loading.value || saving.value || operationId.value !== null)
+const busy = computed(() => loading.value || saving.value || operationId.value !== null || skipDialogVisible.value || skipSaving.value)
 const canManage = computed(() => loaded.value && !loadError.value && !busy.value)
 let active = true
 let controller: AbortController | null = null
@@ -46,6 +59,89 @@ let refreshTimer: ReturnType<typeof setInterval> | undefined
 let previewTimer: ReturnType<typeof setTimeout> | undefined
 let previewController: AbortController | null = null
 let previewRevision = 0
+let skipPreviewController: AbortController | null = null
+let skipPreviewRevision = 0
+
+function canSkipPeriod(item: Todo) {
+  return item.reminder_enabled && !item.is_completed && item.reminder_repeat !== 'once'
+}
+
+function resetSkipPreview() {
+  skipPreviewController?.abort()
+  skipPreviewController = null
+  skipPreviewRevision++
+  skipPreview.value = null
+  skipPreviewLoading.value = false
+  skipPreviewError.value = ''
+}
+
+watch([skipDialogVisible, skipPeriod], () => {
+  resetSkipPreview()
+  skipError.value = ''
+  if (skipDialogVisible.value) void fetchSkipPreview()
+}, { flush: 'sync' })
+
+function openSkipPeriod(item: Todo) {
+  if (!canManage.value || dialogVisible.value || !canSkipPeriod(item)) return
+  skipTarget.value = item
+  skipPeriod.value = recommendedTodoSkipPeriod(item)
+  skipDialogVisible.value = true
+}
+
+async function fetchSkipPreview() {
+  if (skipSaving.value) return
+  resetSkipPreview()
+  const target = skipTarget.value
+  if (!active || !skipDialogVisible.value || !target) return
+  const period = skipPeriod.value
+  const revision = skipPreviewRevision
+  const request = new AbortController()
+  skipPreviewController = request
+  skipPreviewLoading.value = true
+  try {
+    const result = await todosApi.previewSkipPeriod(target.id, period, request.signal)
+    if (!active || request.signal.aborted || revision !== skipPreviewRevision || !skipDialogVisible.value || skipTarget.value?.id !== target.id || skipPeriod.value !== period) return
+    if (result.period !== period || result.timezone !== target.reminder_timezone || !Number.isSafeInteger(result.reminder_revision) || result.reminder_revision < 0 || ![result.period_ends_at, result.next_run_at].every(value => typeof value === 'string' && Number.isFinite(new Date(value).getTime()))) throw new Error('invalid preview')
+    new Intl.DateTimeFormat('zh-CN', { timeZone: result.timezone }).format()
+    skipPreview.value = result
+  } catch {
+    if (active && !request.signal.aborted && revision === skipPreviewRevision) skipPreviewError.value = '无法确认下次提醒时间，请检查网络后重新预览。'
+  } finally {
+    if (active && revision === skipPreviewRevision) skipPreviewLoading.value = false
+    if (skipPreviewController === request) skipPreviewController = null
+  }
+}
+
+async function submitSkipPeriod() {
+  const preview = skipPreview.value
+  if (!active || !skipPreviewValid.value || skipSaving.value || !skipTarget.value || !preview) return
+  let refreshPreview = false
+  skipSaving.value = true
+  skipError.value = ''
+  try {
+    await todosApi.skipPeriod(skipTarget.value.id, skipPeriod.value, preview)
+    if (!active) return
+    skipDialogVisible.value = false
+    operationError.value = ''
+    ElMessage.success('已跳过本周期剩余提醒，下周期按原规则恢复')
+    await load()
+  } catch {
+    if (active) {
+      resetSkipPreview()
+      skipError.value = '操作未完成，已重新检查提醒时间，请确认后重试。'
+      refreshPreview = true
+    }
+  } finally {
+    if (active) {
+      skipSaving.value = false
+      if (refreshPreview) void fetchSkipPreview()
+    }
+  }
+}
+
+function formatSkipTime(value: string) {
+  return new Date(value).toLocaleString('zh-CN', { timeZone: skipPreview.value?.timezone || skipTarget.value?.reminder_timezone, year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false })
+}
 
 function resetPreview() {
   if (previewTimer !== undefined) clearTimeout(previewTimer)
@@ -342,6 +438,7 @@ onBeforeUnmount(() => {
   active = false
   controller?.abort()
   resetPreview()
+  resetSkipPreview()
   if (refreshTimer !== undefined) clearInterval(refreshTimer)
 })
 </script>
@@ -416,6 +513,7 @@ onBeforeUnmount(() => {
                 <el-button size="small" :disabled="!canManage" @click="openEdit(row)">编辑</el-button>
                 <el-button size="small" type="danger" plain :disabled="!canManage" @click="remove(row)">删除</el-button>
                 <el-button v-if="!row.is_completed && row.reminder_enabled && row.reminder_status === 'failed'" size="small" type="warning" plain :disabled="!canManage" @click="retryReminder(row)">重试提醒</el-button>
+                <el-button v-if="canSkipPeriod(row)" size="small" plain :disabled="!canManage" @click="openSkipPeriod(row)">不再提醒</el-button>
               </div>
             </template>
           </el-table-column>
@@ -425,6 +523,35 @@ onBeforeUnmount(() => {
         <el-pagination :current-page="page" :page-size="size" :page-sizes="[10, 20, 50]" :total="total" :disabled="busy" layout="total, sizes, prev, pager, next" @current-change="pageChanged" @size-change="sizeChanged" />
       </div>
     </template>
+
+    <el-dialog v-model="skipDialogVisible" title="本周期不再提醒" class="skip-period-dialog" width="min(560px, calc(100vw - 28px))" :close-on-click-modal="!skipSaving" :close-on-press-escape="!skipSaving" :show-close="!skipSaving" append-to-body>
+      <template v-if="skipTarget">
+        <p class="skip-title">{{ skipTarget.title }}</p>
+        <p class="field-hint">跳过所选周期剩余的提醒，下周期按原规则自动恢复。</p>
+        <el-radio-group v-model="skipPeriod" class="skip-period-options" :disabled="skipSaving" aria-label="跳过提醒周期">
+          <el-radio-button v-for="period in skipPeriods" :key="period.value" :value="period.value">{{ period.label }}</el-radio-button>
+        </el-radio-group>
+        <dl class="skip-details">
+          <div><dt>提醒规则</dt><dd>{{ repeatLabel(skipTarget) }}<code v-if="skipTarget.reminder_repeat === 'cron'" class="cron-expression">{{ skipTarget.reminder_cron }}</code></dd></div>
+          <div><dt>执行时区</dt><dd>{{ skipPreview?.timezone || skipTarget.reminder_timezone }}</dd></div>
+          <template v-if="skipPreview">
+            <div><dt>本周期结束</dt><dd><time :datetime="skipPreview.period_ends_at">{{ formatSkipTime(skipPreview.period_ends_at) }}</time></dd></div>
+            <div><dt>下次提醒</dt><dd><time :datetime="skipPreview.next_run_at">{{ formatSkipTime(skipPreview.next_run_at) }}</time></dd></div>
+          </template>
+        </dl>
+        <div aria-live="polite">
+          <p v-if="skipPreviewLoading" class="field-hint">正在确认下次提醒时间…</p>
+          <p v-else-if="skipPreviewError" class="save-error" role="alert">{{ skipPreviewError }}</p>
+          <el-button v-if="skipPreviewError" size="small" :disabled="skipSaving" @click="fetchSkipPreview">重新预览</el-button>
+        </div>
+        <p class="field-hint">周期按以上执行时区计算，周从周一开始。</p>
+        <p v-if="skipError" class="save-error" role="alert">{{ skipError }}</p>
+      </template>
+      <template #footer>
+        <el-button :disabled="skipSaving" @click="skipDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="skipSaving" :disabled="skipSaving || !skipPreviewValid" @click="submitSkipPeriod">{{ skipError ? '重试跳过' : '确认跳过' }}</el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog v-model="dialogVisible" :title="editingId === null ? '新建待办' : '编辑待办'" width="min(680px, calc(100vw - 28px))" :close-on-click-modal="!saving" :close-on-press-escape="!saving" :show-close="!saving" append-to-body>
       <el-form :model="form" label-position="top" :disabled="saving" @submit.prevent="save">
@@ -555,6 +682,16 @@ onBeforeUnmount(() => {
 .cron-expression :deep(input) { font-family: inherit; }
 .cron-preview { padding: 12px; border-radius: 6px; background: var(--el-fill-color-light); font-size: 13px; }
 .cron-preview-list { margin: 8px 0 12px; padding-left: 24px; color: var(--el-text-color-regular); line-height: 1.9; font-variant-numeric: tabular-nums; }
+.skip-title { margin: 0 0 6px; color: var(--el-text-color-primary); font-size: 16px; font-weight: 500; overflow-wrap: anywhere; }
+.skip-period-options { display: flex; margin: 18px 0; }
+.skip-period-options :deep(.el-radio-button) { flex: 1; min-width: 0; }
+.skip-period-options :deep(.el-radio-button__inner) { box-sizing: border-box; width: 100%; padding-inline: 12px; }
+.skip-details { margin: 0; padding: 14px; border-radius: 6px; background: var(--el-fill-color-light); line-height: 1.7; font-size: 13px; }
+.skip-details > div { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 10px; margin-bottom: 10px; }
+.skip-details > div:last-child { margin-bottom: 0; }
+.skip-details dt { color: var(--el-text-color-secondary); }
+.skip-details dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.skip-details code { display: block; margin-top: 4px; }
 @media (max-width: 600px) {
   .page-heading { align-items: flex-start; }
   .page-actions { width: 100%; }

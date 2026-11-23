@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { JSDOM } from 'jsdom'
 import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
 import ts from 'typescript'
-import type { Todo, TodoInput, TodoPage, TodoCronPreview } from '../api/todos'
+import type { Todo, TodoInput, TodoPage, TodoCronPreview, TodoSkipPeriod, TodoSkipPreview } from '../api/todos'
 import type { TodoForm } from './todos'
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://admin.example.com/', pretendToBeVisual: true })
@@ -59,17 +59,35 @@ type State = {
   applyCronBuilder(): void
 }
 async function settle() { await flushPromises(); await nextTick(); await flushPromises(); await nextTick() }
-async function mount(options: { list?: () => Promise<TodoPage>; create?: (input: TodoInput) => Promise<Todo>; preview?: (input: { reminder_cron: string; reminder_timezone: string }) => Promise<TodoCronPreview> } = {}) {
-  let items = [todo()]
+async function mount(options: {
+  items?: Todo[]; list?: () => Promise<TodoPage>; create?: (input: TodoInput) => Promise<Todo>
+  preview?: (input: { reminder_cron: string; reminder_timezone: string }) => Promise<TodoCronPreview>
+  previewSkipPeriod?: (id: number, period: TodoSkipPeriod, signal?: AbortSignal) => Promise<TodoSkipPreview>
+  skipPeriod?: (id: number, period: TodoSkipPeriod, preview: TodoSkipPreview) => Promise<Todo>
+} = {}) {
+  let items = options.items ?? [todo()]
   const saves: TodoInput[] = []
   const completions: { id: number; completed: boolean }[] = []
   const updates: { id: number; input: TodoInput }[] = []
+  const skipPreviews: { id: number; period: TodoSkipPeriod; signal?: AbortSignal }[] = []
+  const skips: { id: number; period: TodoSkipPeriod; preview: TodoSkipPreview }[] = []
+  const requests = { list: 0 }
   Object.assign(globalThis, { __todoAdmin: {
     async preview(input: { reminder_cron: string; reminder_timezone: string }) {
       return options.preview?.(input) ?? { expression: input.reminder_cron, timezone: input.reminder_timezone,
         times: ['2099-01-01T01:00:00Z', '2099-01-02T01:00:00Z', '2099-01-03T01:00:00Z', '2099-01-04T01:00:00Z', '2099-01-05T01:00:00Z'] }
     },
-    async list() { return options.list?.() ?? { items, total: items.length, page: 1, size: 10, email_configured: true } },
+    async list() { requests.list++; return options.list?.() ?? { items, total: items.length, page: 1, size: 10, email_configured: true } },
+    async previewSkipPeriod(id: number, period: TodoSkipPeriod, signal?: AbortSignal) {
+      skipPreviews.push({ id, period, signal })
+      return options.previewSkipPeriod?.(id, period, signal) ?? skipPreview(period)
+    },
+    async skipPeriod(id: number, period: TodoSkipPeriod, preview: TodoSkipPreview) {
+      skips.push({ id, period, preview })
+      const updated = options.skipPeriod ? await options.skipPeriod(id, period, preview) : { ...items.find(item => item.id === id)!, reminder_next_run_at: '2099-12-01T01:00:00Z' }
+      items = items.map(item => item.id === id ? updated : item)
+      return updated
+    },
     async create(input: TodoInput) {
       saves.push(input)
       const created = options.create ? await options.create(input) : { ...todo(), ...input, id: 2 }
@@ -93,8 +111,156 @@ async function mount(options: { list?: () => Promise<TodoPage>; create?: (input:
   app.use(ElementPlus)
   const instance = app.mount(container) as unknown as { $: { setupState: State } }
   await settle()
-  return { container, state: instance.$.setupState, saves, updates, completions, unmount: () => { app.unmount(); container.remove() } }
+  return { container, state: instance.$.setupState, saves, updates, completions, skipPreviews, skips, requests, unmount: () => { app.unmount(); container.remove() } }
 }
+
+const monthlyTodo = (): Todo => ({ ...todo(), reminder_repeat: 'cron', reminder_cron: '0 9 1,2,3 * *' })
+const skipPreview = (period: TodoSkipPeriod, next = '2099-12-01T01:00:00Z'): TodoSkipPreview => ({
+  period, timezone: 'Asia/Shanghai', period_ends_at: '2099-12-01T00:00:00+08:00', next_run_at: next, reminder_revision: 4,
+})
+function button(root: ParentNode, text: string) {
+  const found = [...root.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent?.trim() === text)
+  assert.ok(found, `应显示“${text}”按钮`)
+  return found
+}
+function skipDialog() {
+  const dialog = document.body.querySelector<HTMLElement>('.skip-period-dialog')
+  assert.ok(dialog, '应打开本周期不再提醒对话框')
+  return dialog
+}
+async function chooseSkipPeriod(period: TodoSkipPeriod) {
+  const input = skipDialog().querySelector<HTMLInputElement>(`input[type="radio"][value="${period}"]`)
+  assert.ok(input, `应提供 ${period} 周期选项`)
+  input.click()
+  await settle()
+}
+
+test('only active recurring todos offer skip and the month-first-three-days rule defaults to this month', async t => {
+  const view = await mount({ items: [monthlyTodo(), { ...todo(), id: 2 }, { ...monthlyTodo(), id: 3, reminder_enabled: false }, { ...monthlyTodo(), id: 4, is_completed: true }] })
+  t.after(view.unmount)
+  const buttons = [...view.container.querySelectorAll('button')].filter(item => item.textContent?.trim() === '不再提醒')
+  assert.equal(buttons.length, 1)
+  buttons[0]!.click()
+  await settle()
+  const dialog = skipDialog()
+  assert.equal(dialog.querySelector<HTMLInputElement>('input[value="month"]')?.checked, true)
+  assert.equal(view.skipPreviews[0]?.period, 'month')
+  assert.match(dialog.textContent ?? '', /0 9 1,2,3 \* \*/)
+  assert.match(dialog.textContent ?? '', /Asia\/Shanghai/)
+  assert.deepEqual([...dialog.querySelectorAll('time')].map(item => item.dateTime), ['2099-12-01T00:00:00+08:00', '2099-12-01T01:00:00Z'])
+  assert.equal(button(dialog, '确认跳过').disabled, false)
+})
+
+test('changing skip period aborts and ignores old previews, and closing aborts the current preview', async t => {
+  const pending: ((value: TodoSkipPreview) => void)[] = []
+  const view = await mount({ items: [monthlyTodo()], previewSkipPeriod: () => new Promise(resolve => pending.push(resolve)) })
+  t.after(view.unmount)
+  button(view.container, '不再提醒').click()
+  await settle()
+  assert.equal(button(skipDialog(), '确认跳过').disabled, true)
+  await chooseSkipPeriod('day')
+  assert.equal(view.skipPreviews[0]?.signal?.aborted, true)
+  assert.equal(button(skipDialog(), '确认跳过').disabled, true)
+  pending[1]!(skipPreview('day', '2099-11-24T01:00:00Z'))
+  await settle()
+  assert.equal(button(skipDialog(), '确认跳过').disabled, false)
+  pending[0]!(skipPreview('month'))
+  await settle()
+  assert.equal(skipDialog().querySelectorAll('time')[1]?.dateTime, '2099-11-24T01:00:00Z')
+  await chooseSkipPeriod('week')
+  button(skipDialog(), '取消').click()
+  await settle()
+  assert.equal(view.skipPreviews[2]?.signal?.aborted, true)
+  pending[2]!(skipPreview('week'))
+  await settle()
+  assert.equal(view.skips.length, 0)
+})
+
+test('failed skip previews keep the selection and retry before enabling confirmation', async t => {
+  let failing = true
+  const view = await mount({ items: [monthlyTodo()], previewSkipPeriod: async (_id, period) => {
+    if (failing) throw new Error('offline')
+    return skipPreview(period)
+  } })
+  t.after(view.unmount)
+  button(view.container, '不再提醒').click()
+  await settle()
+  await chooseSkipPeriod('year')
+  assert.equal(button(skipDialog(), '确认跳过').disabled, true)
+  assert.ok(skipDialog().querySelector('[role="alert"]'))
+  assert.equal(skipDialog().querySelector<HTMLInputElement>('input[value="year"]')?.checked, true)
+  failing = false
+  button(skipDialog(), '重新预览').click()
+  await settle()
+  assert.equal(button(skipDialog(), '确认跳过').disabled, false)
+  assert.equal(view.skips.length, 0)
+})
+
+test('an incomplete preview snapshot cannot enable skip confirmation', async t => {
+  const view = await mount({ items: [monthlyTodo()], previewSkipPeriod: async (_id, period) => {
+    const result = { ...skipPreview(period) }
+    delete (result as Partial<TodoSkipPreview>).reminder_revision
+    return result
+  } })
+  t.after(view.unmount)
+  button(view.container, '不再提醒').click()
+  await settle()
+  assert.equal(button(skipDialog(), '确认跳过').disabled, true)
+  assert.ok(skipDialog().querySelector('[role="alert"]'))
+  assert.equal(view.skips.length, 0)
+})
+
+test('failed skips retain the dialog and success refreshes while preserving the reminder switch', async t => {
+  let failing = true
+  let release!: () => void
+  let releasePreview!: () => void
+  let previewCalls = 0
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const previewGate = new Promise<void>(resolve => { releasePreview = resolve })
+  const view = await mount({ items: [monthlyTodo()], previewSkipPeriod: async (_id, period) => {
+    previewCalls++
+    if (previewCalls === 3) {
+      await previewGate
+      return { ...skipPreview(period), period_ends_at: '2100-01-01T00:00:00+08:00', next_run_at: '2100-01-01T01:00:00Z', reminder_revision: 5 }
+    }
+    return skipPreview(period)
+  }, skipPeriod: async () => {
+    await gate
+    if (failing) throw new Error('offline')
+    return { ...monthlyTodo(), reminder_next_run_at: '2099-12-01T01:00:00Z' }
+  } })
+  t.after(view.unmount)
+  button(view.container, '不再提醒').click()
+  await settle()
+  await chooseSkipPeriod('year')
+  button(skipDialog(), '确认跳过').click()
+  await settle()
+  assert.equal(button(skipDialog(), '取消').disabled, true)
+  assert.equal(skipDialog().querySelector<HTMLInputElement>('input[value="month"]')?.disabled, true)
+  assert.equal(view.skips.length, 1)
+  assert.equal(view.state.canManage, false)
+  release()
+  await settle()
+  assert.ok(skipDialog().querySelector('[role="alert"]'))
+  assert.equal(skipDialog().querySelector<HTMLInputElement>('input[value="year"]')?.checked, true)
+  assert.equal(view.requests.list, 1)
+  assert.equal(button(skipDialog(), '重试跳过').disabled, true)
+  assert.equal(view.skipPreviews.length, 3, '失败后应重新预览，旧预览不能直接再次提交')
+  releasePreview()
+  await settle()
+  assert.equal(button(skipDialog(), '重试跳过').disabled, false)
+  failing = false
+  button(skipDialog(), '重试跳过').click()
+  await settle()
+  assert.deepEqual(view.skips, [
+    { id: 1, period: 'year', preview: { period: 'year', timezone: 'Asia/Shanghai', period_ends_at: '2099-12-01T00:00:00+08:00', next_run_at: '2099-12-01T01:00:00Z', reminder_revision: 4 } },
+    { id: 1, period: 'year', preview: { period: 'year', timezone: 'Asia/Shanghai', period_ends_at: '2100-01-01T00:00:00+08:00', next_run_at: '2100-01-01T01:00:00Z', reminder_revision: 5 } },
+  ])
+  assert.equal(view.requests.list, 2)
+  assert.equal(view.state.list[0]?.reminder_next_run_at, '2099-12-01T01:00:00Z')
+  assert.equal(view.state.list[0]?.reminder_enabled, true)
+  assert.equal(view.state.list[0]?.is_completed, false)
+})
 
 test('a failed list load disables edits until a successful retry', async t => {
   let failing = true
