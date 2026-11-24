@@ -14,6 +14,7 @@ from app.core.todo_cron import cron_occurrences, next_cron_at
 from app.core.todo_skip_period import skip_period_schedule
 from app.middlewares.auth import login_required
 from app.models.todo import Todo
+from app.models.todo_history import TodoReminderHistory
 from app.schemas.todo import TodoCompletionIn, TodoCronPreviewIn, TodoIn, TodoSkipPeriodIn
 
 
@@ -165,6 +166,27 @@ async def create_todo(request: Request):
     return success(todo_dict(todo), message="created")
 
 
+@bp.get("/<todo_id:int>/history")
+@login_required
+async def list_todo_history(request: Request, todo_id: int):
+    _ensure_admin(request)
+    if not await Todo.exists(id=todo_id, owner_id=request.ctx.user.id):
+        raise NotFoundError("待办事项不存在")
+    arguments = request.get_args(keep_blank_values=True)
+    page = _integer(arguments, "page", "1", 2147483647)
+    size = _integer(arguments, "size", "20", 100)
+    qs = TodoReminderHistory.filter(todo_id=todo_id)
+    total = await qs.count()
+    rows = await qs.order_by("-created_at", "-id").offset((page - 1) * size).limit(size)
+    return success({"items": [{
+        "id": row.id, "event": row.event, "period": row.period,
+        "scheduled_at": row.scheduled_at.isoformat() if row.scheduled_at else None,
+        "created_at": row.created_at.isoformat(),
+        "next_run_at": row.next_run_at.isoformat() if row.next_run_at else None,
+        "error": row.error,
+    } for row in rows], "total": total, "page": page, "size": size})
+
+
 @bp.post("/preview")
 @login_required
 async def preview_todo_cron(request: Request):
@@ -217,6 +239,7 @@ async def skip_todo_period(request: Request, todo_id: int):
                 != next_run.astimezone(timezone.utc))
         ):
             raise ValidationError("预览已过期，请重新确认")
+        previous_run = todo.reminder_next_run_at
         _invalidate_claim(todo)
         todo.reminder_next_run_at = next_run
         todo.reminder_next_attempt_at = next_run
@@ -224,6 +247,8 @@ async def skip_todo_period(request: Request, todo_id: int):
         todo.reminder_error = ""
         todo.reminder_status = "pending"
         await todo.save(using_db=connection)
+        await TodoReminderHistory.create(todo_id=todo.id, event="skipped", scheduled_at=previous_run,
+                                         next_run_at=next_run, period=payload.period, using_db=connection)
     return success(todo_dict(todo), message="updated")
 
 

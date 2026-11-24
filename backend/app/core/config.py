@@ -38,6 +38,7 @@ class Settings:
     APP_PORT: int = _int(os.getenv("APP_PORT"), 8000)
     APP_DEBUG: bool = _bool(os.getenv("APP_DEBUG"), True)
     APP_SECRET_KEY: str = os.getenv("APP_SECRET_KEY", "change-me")
+    PUBLIC_SITE_URL: str = os.getenv("PUBLIC_SITE_URL", "https://www.example.com").strip()
 
     # JWT
     JWT_SECRET: str = os.getenv("JWT_SECRET", "change-me-jwt")

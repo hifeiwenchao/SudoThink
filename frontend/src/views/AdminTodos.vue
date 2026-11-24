@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
+import TodoHistory from '@/components/TodoHistory.vue'
 import { todosApi, type Todo, type TodoFilter, type TodoCronPreview, type TodoSkipPeriod, type TodoSkipPreview } from '@/api/todos'
 import { deviceTimezone, prepareTodoInput, type TodoForm, type TodoFormErrors } from '@/utils/todos'
 import { buildTodoCron, describeTodoCron, normalizeTodoCron, recommendedTodoSkipPeriod, type TodoCronBuilder } from '@/utils/todoCron'
@@ -20,6 +21,8 @@ const operationError = ref('')
 const operationId = ref<number | null>(null)
 const emailConfigured = ref(false)
 const dialogVisible = ref(false)
+const historyVisible = ref(false)
+const historyTarget = ref<Todo | null>(null)
 const editingId = ref<number | null>(null)
 const editingCompleted = ref(false)
 const saving = ref(false)
@@ -511,6 +514,7 @@ onBeforeUnmount(() => {
               <div class="row-actions">
                 <el-button size="small" :type="row.is_completed ? 'default' : 'success'" plain :disabled="!canManage" :loading="operationId === row.id" @click="toggleCompletion(row)">{{ row.is_completed ? '重新打开' : '完成' }}</el-button>
                 <el-button size="small" :disabled="!canManage" @click="openEdit(row)">编辑</el-button>
+                <el-button size="small" @click="historyTarget = row; historyVisible = true">提醒历史</el-button>
                 <el-button size="small" type="danger" plain :disabled="!canManage" @click="remove(row)">删除</el-button>
                 <el-button v-if="!row.is_completed && row.reminder_enabled && row.reminder_status === 'failed'" size="small" type="warning" plain :disabled="!canManage" @click="retryReminder(row)">重试提醒</el-button>
                 <el-button v-if="canSkipPeriod(row)" size="small" plain :disabled="!canManage" @click="openSkipPeriod(row)">不再提醒</el-button>
@@ -523,6 +527,8 @@ onBeforeUnmount(() => {
         <el-pagination :current-page="page" :page-size="size" :page-sizes="[10, 20, 50]" :total="total" :disabled="busy" layout="total, sizes, prev, pager, next" @current-change="pageChanged" @size-change="sizeChanged" />
       </div>
     </template>
+
+    <TodoHistory v-model="historyVisible" :todo="historyTarget" />
 
     <el-dialog v-model="skipDialogVisible" title="本周期不再提醒" class="skip-period-dialog" width="min(560px, calc(100vw - 28px))" :close-on-click-modal="!skipSaving" :close-on-press-escape="!skipSaving" :show-close="!skipSaving" append-to-body>
       <template v-if="skipTarget">

@@ -13,6 +13,7 @@ class Article(TimestampMixin):
     cover = fields.CharField(max_length=512, default="", description="封面图")
     is_published = fields.BooleanField(default=False, description="是否发布")
     view_count = fields.IntField(default=0, description="阅读量")
+    deleted_at = fields.DatetimeField(null=True, index=True, description="回收时间")
     published_at = fields.DatetimeField(null=True, description="发布时间")
 
     author = fields.ForeignKeyField(

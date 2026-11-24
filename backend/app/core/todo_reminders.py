@@ -13,6 +13,7 @@ from app.core.config import settings
 from app.core.mail import MailDeliveryError, send_mail, smtp_ready, validate_recipient
 from app.core.todo_cron import next_cron_at
 from app.core.todo_recurrence import next_reminder_at
+from app.core.todo_history import save_reminder_outcome
 from app.models.todo import Todo
 
 
@@ -38,11 +39,19 @@ async def claim_reminder(todo_id: int, *, now: datetime | None = None) -> tuple[
         return None
     if todo.reminder_attempts >= MAX_ATTEMPTS:
         # The final attempt may have died without saving an outcome.
-        await Todo.filter(_ready(now), id=todo_id, reminder_revision=todo.reminder_revision).update(
+        changes = dict(
             reminder_status="failed", reminder_next_attempt_at=None,
             reminder_claim_token="", reminder_claim_until=None,
             reminder_error="提醒发送中断，请手动重试", updated_at=now,
         )
+        # A conditional update and its history insert share a transaction.
+        from tortoise.transactions import in_transaction
+        from app.models.todo_history import TodoReminderHistory
+        async with in_transaction() as connection:
+            changed = await Todo.filter(_ready(now), id=todo_id, reminder_revision=todo.reminder_revision).using_db(connection).update(**changes)
+            if changed:
+                await TodoReminderHistory.create(todo_id=todo.id, event="failed", scheduled_at=todo.reminder_next_run_at,
+                                                  next_run_at=todo.reminder_next_run_at, error=changes["reminder_error"], using_db=connection)
         return None
     token = uuid4().hex
     updated = await Todo.filter(
@@ -103,12 +112,13 @@ async def deliver_reminder(
         error = str(exc) if isinstance(exc, MailDeliveryError) else "邮件发送失败，请检查邮件服务或稍后重试"
         retry = todo.reminder_attempts < MAX_ATTEMPTS
         delay = 60 if todo.reminder_attempts == 1 else 300
-        changed = await Todo.filter(**claim).update(
+        changes = dict(
             reminder_status="pending" if retry else "failed",
             reminder_error=error[:255], reminder_claim_token="", reminder_claim_until=None,
             reminder_next_attempt_at=now + timedelta(seconds=delay) if retry else None,
             updated_at=now,
         )
+        changed = await save_reminder_outcome(todo, claim, changes, "failed")
         if changed:
             logger.warning("Todo reminder %s delivery failed (attempt %s)", todo_id, todo.reminder_attempts)
         return "failed" if changed else "skipped"
@@ -125,7 +135,7 @@ async def deliver_reminder(
     )
     if next_run:
         changes["reminder_attempts"] = 0
-    changed = await Todo.filter(**claim).update(**changes)
+    changed = await save_reminder_outcome(todo, claim, changes, "sent")
     return "sent" if changed else "skipped"
 
 

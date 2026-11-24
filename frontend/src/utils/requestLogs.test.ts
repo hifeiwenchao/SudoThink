@@ -206,3 +206,26 @@ test('unmount aborts the current request and ignores its eventual response', asy
   await settle()
   assert.equal(view.state.items.length, 0)
 })
+
+test('date range is submitted as ISO instants, validated and cleared on reset', async t => {
+  const view = await mount()
+  t.after(view.unmount)
+  const state = view.state as State & { dateRange: [Date, Date] | null; dateError: string }
+  state.dateRange = [new Date('2026-11-17T10:00:00+08:00'), new Date('2026-11-18T10:00:00+08:00')]
+  await state.applyFilters()
+  assert.equal(view.requests.at(-1)?.params.created_from, '2026-11-17T02:00:00.000Z')
+  assert.equal(view.requests.at(-1)?.params.created_to, '2026-11-18T02:00:00.000Z')
+  const count = view.requests.length
+  state.dateRange = [new Date('invalid'), new Date()]
+  await state.applyFilters()
+  assert.match(state.dateError, /有效/)
+  state.dateRange = [new Date('2026-11-19'), new Date('2026-11-18')]
+  await state.applyFilters()
+  assert.match(state.dateError, /开始.*结束/)
+  assert.equal(view.requests.length, count)
+  await state.resetFilters()
+  assert.equal(state.dateRange, null)
+  assert.deepEqual(view.requests.at(-1)?.params, { page: 1, size: 20 })
+  await settle()
+  assert.match(view.container.textContent ?? '', /请求记录保留7天，过期记录每小时清理/)
+})

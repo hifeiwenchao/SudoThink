@@ -14,6 +14,8 @@ export interface ApiRequestLog {
 }
 
 export interface RequestLogFilters {
+  created_from?: string
+  created_to?: string
   url?: string
   method?: string
   status_code?: number

@@ -30,8 +30,10 @@ export interface Article {
   tags: ArticleBrief[]
 }
 
+export type ArticleListItem = Omit<Article, 'content'>
+
 export interface ArticleListResp {
-  items: Article[]
+  items: ArticleListItem[]
   total: number
   page: number
   size: number

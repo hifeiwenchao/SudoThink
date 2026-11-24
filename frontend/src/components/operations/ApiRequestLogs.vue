@@ -12,6 +12,8 @@ const filterError = ref('')
 const urlFilter = ref('')
 const methodFilter = ref('')
 const statusCodeFilter = ref('')
+const dateRange = ref<[Date, Date] | null>(null)
+const dateError = ref('')
 const methods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
 let filters: RequestLogFilters = {}
 let requestNumber = 0
@@ -50,6 +52,18 @@ async function load(nextPage = page.value) {
 }
 
 async function applyFilters() {
+  dateError.value = ''
+  if (dateRange.value) {
+    const [start, end] = dateRange.value
+    if (!(start instanceof Date) || !(end instanceof Date) || !Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) {
+      dateError.value = '请选择有效的开始和结束时间'
+      return
+    }
+    if (start > end) {
+      dateError.value = '开始时间不能晚于结束时间'
+      return
+    }
+  }
   const statusCode = statusCodeFilter.value.trim()
   if (statusCode && !/^[1-5]\d{2}$/.test(statusCode)) {
     filterError.value = '状态码须为 100–599 的三位整数'
@@ -57,6 +71,10 @@ async function applyFilters() {
   }
   filterError.value = ''
   filters = {}
+  if (dateRange.value) {
+    filters.created_from = dateRange.value[0].toISOString()
+    filters.created_to = dateRange.value[1].toISOString()
+  }
   if (urlFilter.value.trim()) filters.url = urlFilter.value.trim()
   if (methodFilter.value) filters.method = methodFilter.value
   if (statusCode) filters.status_code = Number(statusCode)
@@ -69,6 +87,7 @@ async function resetFilters() {
   urlFilter.value = ''
   methodFilter.value = ''
   statusCodeFilter.value = ''
+  dateRange.value = null
   await applyFilters()
 }
 
@@ -109,11 +128,15 @@ onBeforeUnmount(() => {
       <div>
         <h3 id="request-logs-heading">API 请求记录</h3>
         <p class="field-hint">展开记录查看请求参数 · 时间为北京时间</p>
+        <p class="field-hint">请求记录保留7天，过期记录每小时清理</p>
       </div>
       <el-button :loading="loading" @click="load()">刷新记录</el-button>
     </div>
 
     <el-form label-position="top" class="request-filters" @submit.prevent="applyFilters">
+      <el-form-item label="请求时间（设备本地时区）" :error="dateError" class="date-filter">
+        <el-date-picker v-model="dateRange" type="datetimerange" start-placeholder="开始时间" end-placeholder="结束时间" format="YYYY-MM-DD HH:mm:ss" aria-label="按请求时间范围筛选" />
+      </el-form-item>
       <el-form-item label="URL 包含" class="url-filter">
         <el-input v-model="urlFilter" placeholder="例如 /api/articles/42" aria-label="按 URL 包含内容筛选" clearable />
       </el-form-item>
@@ -187,6 +210,8 @@ onBeforeUnmount(() => {
 .url-filter { flex: 1 1 260px; }
 .method-filter { width: 135px; }
 .status-filter { width: 145px; }
+.date-filter { flex: 1 1 380px; min-width: 0; }
+.date-filter :deep(.el-date-editor) { width: 100%; min-width: 0; }
 .filter-actions { display: flex; padding-top: 30px; margin-bottom: 18px; }
 .error-message { display: flex; align-items: center; gap: 12px; margin: 14px 0; color: var(--el-color-danger); font-size: 14px; }
 .list-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-top: 20px; }

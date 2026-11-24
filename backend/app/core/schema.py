@@ -102,6 +102,27 @@ async def _upgrade_todos(connection) -> None:
     )
 
 
+async def _upgrade_article_deleted_at(connection) -> None:
+    """Retain deleted articles; recover safely if index creation was interrupted."""
+    columns = await connection.execute_query_dict(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS "
+        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'articles' "
+        "AND COLUMN_NAME = 'deleted_at'"
+    )
+    indexes = await connection.execute_query_dict(
+        "SELECT COLUMN_NAME FROM information_schema.STATISTICS "
+        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'articles' "
+        "AND COLUMN_NAME = 'deleted_at' AND SEQ_IN_INDEX = 1"
+    )
+    changes = []
+    if not columns:
+        changes.append("ADD COLUMN `deleted_at` DATETIME(6) NULL COMMENT '回收时间'")
+    if not indexes:
+        changes.append("ADD INDEX `idx_articles_deleted_at` (`deleted_at`)")
+    if changes:
+        await connection.execute_script("ALTER TABLE `articles` " + ", ".join(changes))
+
+
 async def upgrade_site_content_schema() -> None:
     """Create missing tables and upgrade legacy columns without replacing data.
 
@@ -130,3 +151,4 @@ async def upgrade_site_content_schema() -> None:
         )
     await _upgrade_guest_comments(connection)
     await _upgrade_todos(connection)
+    await _upgrade_article_deleted_at(connection)

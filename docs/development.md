@@ -6,7 +6,7 @@
 
 在 `backend/app/tasks` 下新增任务模块，并在该目录的 `__init__.py` 中导入。任务使用 Celery 的同步入口，例如已有的 `app.tasks.diagnostics.ping`；通过 `ping.delay()` 或 `celery_app.send_task("app.tasks.diagnostics.ping")` 投递。Sanic 请求处理中投递任务会进行同步 broker I/O，应使用 `await asyncio.to_thread(ping.delay)`，避免阻塞事件循环。
 
-周期计划集中在 [backend/app/celery_app.py](../backend/app/celery_app.py) 的 `BEAT_SCHEDULE` 中，内置每 60 秒检查待办提醒的任务。新增计划时填写已注册的任务名和 `schedule`，例如 `crontab(hour=2, minute=0)` 表示按 `CELERY_TIMEZONE` 每天凌晨两点投递；修改后重建 worker 和 beat。文章阅读数使用下文的延迟任务，由访问触发，不依赖 beat 的周期扫描。
+周期计划集中在 [backend/app/celery_app.py](../backend/app/celery_app.py) 的 `BEAT_SCHEDULE` 中，内置每 60 秒检查待办提醒、每小时清理过期 API 请求日志的任务。新增计划时填写已注册的任务名和 `schedule`，例如 `crontab(hour=2, minute=0)` 表示按 `CELERY_TIMEZONE` 每天凌晨两点投递；修改后重建 worker 和 beat。文章阅读数使用下文的延迟任务，由访问触发，不依赖 beat 的周期扫描。
 
 任务通过 `run_with_worker_resources` 复用 worker 进程生命周期管理的事件循环、ORM 和 Redis，不复用 Sanic 的资源。不要在每次任务中初始化与关闭连接，不要直接把 `async def` 注册为 Celery 任务，也不要跨事件循环复用 ORM 连接。任务发现阶段保持轻量导入，业务服务与模型在执行阶段导入。任务应按可能重复执行设计为幂等。
 
@@ -24,9 +24,11 @@
 
 邮件在后台线程通过 SSL/STARTTLS 发送，失败分别等待 1 分钟和 5 分钟，最多尝试 3 次；用完后在列表中手动重试。领取后进程中断，由后续检查回收过期租约。SMTP 接受邮件与数据库记录发送结果无法组成原子事务，两者之间进程异常中断时可能重复提醒；正常重复扫描不会重复发送。修改、完成或删除可取消尚未开始发送的旧提醒，已提交给邮件服务器的邮件无法撤回。
 
+`GET /api/admin/todos/<id>/history` 分页读取所属管理员的私有提醒历史。`todo_reminder_history` 保存本次升级后的 sent/failed/skipped 事件、计划时间、后续时间及脱敏错误，不保存邮箱、正文或领取令牌。结果状态和历史在同一数据库事务中写入，旧版本投递不产生新历史；删除待办时级联清理。
+
 ## API 请求记录与文章阅读数
 
-管理员进入“运维管理 → API 请求记录”，可按 URL、请求方法和 HTTP 状态码筛选，并分页查看请求时间、耗时、URL 及查询、路径、请求体参数。该功能独立于 CDN 配置，只有管理员可以查询。
+管理员进入“运维管理 → API 请求记录”，可按 URL、请求方法、HTTP 状态码和请求时间范围筛选，并分页查看请求时间、耗时、URL 及查询、路径、请求体参数。该功能独立于 CDN 配置，只有管理员可以查询。
 
 后端将 `/api` 下的请求记录到 MySQL 的 `api_request_logs` 表，包含成功和失败响应。URL 使用站内路径与脱敏后的查询字符串，不保存请求头、Cookie 或响应体。密码、令牌、密钥等敏感字段会替换为脱敏标记；待办接口的请求体及查询参数整体省略，避免私人事项进入管理员共享日志。参数限制层级、数量和长度，过大的内容会截断或省略。文件内容和无法解析的请求体不保存。请求记录写入失败时会输出简要日志，不影响原接口响应。
 
@@ -41,7 +43,7 @@ docker compose exec backend celery -A app.celery_app:celery_app call app.tasks.a
 docker compose logs --tail=30 worker
 ```
 
-阅读计数缓存不自动过期。Redis 不可用时，详情接口使用数据库值并输出简要日志；这期间无法完成 Redis 阅读累加。投递任务失败时保留缓存计数，后续访问可重新安排写回。Redis 中尚未写回的数据依赖 Redis 的持久化，请按部署需求配置 AOF/RDB 和内存淘汰策略；清空计数缓存会丢失未写回的增量。API 请求记录目前不自动删除，会随访问量增长，其清理与阅读统计相互独立。
+阅读计数缓存不自动过期。Redis 不可用时，详情接口使用数据库值并输出简要日志；这期间无法完成 Redis 阅读累加。投递任务失败时保留缓存计数，后续访问可重新安排写回。Redis 中尚未写回的数据依赖 Redis 的持久化，请按部署需求配置 AOF/RDB 和内存淘汰策略；清空计数缓存会丢失未写回的增量。API 请求日志固定保留最近 7 天，无环境变量配置。Celery 每小时分批删除严格早于当前时间减 7 天的记录，每批最多 1000 条，每次最多 100 批，剩余积压由后续运行继续清理。因此两次清理之间可能短暂存在超过 7 天的记录；清理与阅读统计相互独立。查询参数 `created_from` 和 `created_to` 接受包含时区的 ISO 时间、包括边界，查询前转换到数据库时区；非法或反向时间范围返回校验错误。
 
 ## 通用延迟任务去重
 
@@ -99,3 +101,9 @@ await schedule_task_once(
 | CDN 资源预热 | POST | `/api/admin/operations/cdn/preload`（管理员，`urls`） |
 | CDN 任务查询 | GET | `/api/admin/operations/cdn/tasks`（管理员，`task_id`、`page`、`size`） |
 | API 请求记录 | GET | `/api/admin/operations/requests`（管理员，`url`、`method`、`status_code`、`page`、`size`） |
+
+## 文章回收站与公开索引
+
+文章 `deleted_at` 为空表示活动记录。两个删除入口均改为软删除，`POST /api/admin/articles/<id>/restore` 恢复；后台 `status=all|published|draft|trash` 筛选，默认排除回收站。公开列表、详情、评论入口、首页统计及 sitemap 均排除回收站，升级幂等添加删除时间与索引。列表查询不读取或返回 `content`，详情保留完整正文。
+
+`/api/seo/sitemap.xml` 使用配置的 `PUBLIC_SITE_URL` 生成公开文章索引，超过 10000 篇时返回分页 sitemap index；`/api/seo/robots.txt` 提供公开站规则。NGINX 将根目录的 sitemap/robots 代理到相应接口，管理域返回禁止抓取规则。页面 meta 与 canonical 由 Vue 更新，非执行 JavaScript 的抓取器可能无法获得文章 meta；SPA 未知路径仍可能返回 HTTP 200，页面本身显示 404 并设置 noindex。严格爬虫状态码及非 JS 分享卡片需要后续预渲染或服务端渲染。

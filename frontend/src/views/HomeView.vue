@@ -1,35 +1,30 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { ArrowRight, Refresh, Search, View } from '@element-plus/icons-vue'
-import { articleApi, type Article } from '@/api/article'
+import { articleApi, type ArticleListItem } from '@/api/article'
 import { taxonomyApi, type TaxonomyItem } from '@/api/taxonomy'
 import { useTaxonomyStore } from '@/stores/taxonomy'
+import { articleQuery, parseArticleQuery, type ArticleQuery } from '@/utils/publicNavigation'
 
 const route = useRoute()
 const router = useRouter()
 const taxonomyStore = useTaxonomyStore()
 const { categories } = storeToRefs(taxonomyStore)
 
-function routeCategory(): number | undefined {
-  const value = route.query.category
-  if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value)) return undefined
-  const id = Number(value)
-  return Number.isSafeInteger(id) ? id : undefined
-}
-
-const list = ref<Article[]>([])
+const queryState = computed(() => parseArticleQuery(route.query))
+const list = ref<ArticleListItem[]>([])
 const total = ref(0)
-const page = ref(1)
+const page = computed(() => queryState.value.page)
 const size = 10
 const loading = ref(false)
 const hasLoaded = ref(false)
 const loadError = ref(false)
-const keyword = ref('')
-const searchQuery = ref('')
-const categoryId = ref<number | undefined>(routeCategory())
-const tagId = ref<number>()
+const keyword = ref(queryState.value.q)
+const searchQuery = computed(() => queryState.value.q)
+const categoryId = computed(() => queryState.value.category)
+const tagId = computed(() => queryState.value.tag)
 const tags = ref<TaxonomyItem[]>([])
 const taxonomyLoading = ref(false)
 const taxonomyError = ref(false)
@@ -59,7 +54,11 @@ async function load() {
   } catch {
     if (currentRequest === requestId) loadError.value = true
   } finally {
-    if (currentRequest === requestId) loading.value = false
+    if (currentRequest === requestId) {
+      loading.value = false
+      await nextTick()
+      window.dispatchEvent(new window.Event('sudothink:articles-ready'))
+    }
   }
 }
 
@@ -73,44 +72,15 @@ async function loadTaxonomy() {
   taxonomyLoading.value = false
 }
 
-function submitSearch() {
-  searchQuery.value = keyword.value.trim()
-  page.value = 1
-  void load()
+function navigate(patch: Partial<ArticleQuery>) {
+  const query = articleQuery({ ...queryState.value, page: 1, ...patch })
+  void router.push({ path: '/', query, hash: '#articles' })
 }
-
-function selectCategory(id?: number) {
-  if (categoryId.value === id) {
-    page.value = 1
-    void load()
-    return
-  }
-  void router.push({ path: '/', query: { ...route.query, category: id ? String(id) : undefined }, hash: '#articles' })
-}
-
-function selectTag(id?: number) {
-  tagId.value = tagId.value === id ? undefined : id
-  page.value = 1
-  void load()
-}
-
-function clearFilters() {
-  keyword.value = ''
-  searchQuery.value = ''
-  tagId.value = undefined
-  page.value = 1
-  if (route.query.category) {
-    void router.push({ path: '/', query: { ...route.query, category: undefined }, hash: '#articles' })
-  } else {
-    void load()
-  }
-}
-
-function changePage(nextPage: number) {
-  page.value = nextPage
-  void load()
-  document.getElementById('articles')?.scrollIntoView({ block: 'start' })
-}
+function submitSearch() { navigate({ q: keyword.value.trim() }) }
+function selectCategory(id?: number) { navigate({ category: id }) }
+function selectTag(id?: number) { navigate({ tag: tagId.value === id ? undefined : id }) }
+function clearFilters() { keyword.value = ''; navigate({ q: '', category: undefined, tag: undefined }) }
+function changePage(nextPage: number) { navigate({ page: nextPage }) }
 
 function formatDate(value: string) {
   const date = new Date(value)
@@ -120,23 +90,26 @@ function formatDate(value: string) {
   }).format(date).replaceAll('/', '.')
 }
 
-function showCover(article: Article) {
+function showCover(article: ArticleListItem) {
   return article.cover && !failedCovers.value.has(article.cover)
 }
 
-onMounted(() => {
+onMounted(() => { void loadTaxonomy() })
+watch(() => route.query, () => {
+  if (route.name !== 'home') return
+  const normalized = articleQuery(queryState.value)
+  if (Object.keys(route.query).length !== Object.keys(normalized).length || Object.entries(normalized).some(([key, value]) => route.query[key] !== value)) {
+    void router.replace({ path: '/', query: normalized, hash: route.hash })
+    return
+  }
+  keyword.value = queryState.value.q
   void load()
-  void loadTaxonomy()
-})
-watch(() => route.query.category, () => {
-  categoryId.value = routeCategory()
-  page.value = 1
-  void load()
-})
+}, { immediate: true })
+onBeforeUnmount(() => { requestId++ })
 </script>
 
 <template>
-  <div class="blog-home">
+  <div class="blog-home" :data-list-loading="loading">
     <section class="hero" aria-labelledby="home-heading">
       <div class="hero-copy">
         <p class="eyebrow"><span class="eyebrow-mark">//</span> NOTES, IDEAS &amp; THINGS I BUILD</p>
@@ -228,10 +201,10 @@ watch(() => route.query.category, () => {
             </div>
             <div class="article-body" :class="{ 'has-cover': showCover(item) }">
               <div class="article-copy">
-                <h3><RouterLink :to="`/articles/${item.id}`">{{ item.title }}<ArrowRight class="title-arrow" aria-hidden="true" /></RouterLink></h3>
+                <h3><RouterLink :to="{ path: `/articles/${item.id}`, query: { from: route.fullPath } }">{{ item.title }}<ArrowRight class="title-arrow" aria-hidden="true" /></RouterLink></h3>
                 <p v-if="item.summary" class="article-summary">{{ item.summary }}</p>
               </div>
-              <RouterLink v-if="showCover(item)" class="article-cover" :to="`/articles/${item.id}`" tabindex="-1" aria-hidden="true">
+              <RouterLink v-if="showCover(item)" class="article-cover" :to="{ path: `/articles/${item.id}`, query: { from: route.fullPath } }" tabindex="-1" aria-hidden="true">
                 <img :src="item.cover" alt="" loading="lazy" @error="failedCovers.add(item.cover)" />
               </RouterLink>
             </div>

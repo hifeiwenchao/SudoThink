@@ -12,6 +12,7 @@ from app.api.music import bp as music_bp
 from app.api.health import bp as health_bp
 from app.api.tag import bp as tag_bp
 from app.api.wechat import bp as wechat_bp
+from app.api.seo import bp as seo_bp
 
 
 def register_blueprints(app: Sanic) -> None:
@@ -26,6 +27,7 @@ def register_blueprints(app: Sanic) -> None:
         tag_bp,
         comment_bp,
         wechat_bp,
+        seo_bp,
         admin_bp,
         url_prefix="/api",
     )

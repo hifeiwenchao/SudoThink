@@ -87,6 +87,7 @@ MySQL 账号及 RabbitMQ 用户/vhost 须事先创建并授权；建库可单独
 - [frontend/src/site.ts](./frontend/src/site.ts)：`ADMIN_SITE_HOST` 填管理域名，`PUBLIC_SITE_URL` 填公开站点完整首页地址。
 - [nginx/conf.d/sudothink.conf](./nginx/conf.d/sudothink.conf)：替换公开、管理及裸域的 `server_name`、裸域跳转目标和证书路径。
 - `.env`：`CORS_ORIGINS` 填两个站点的准确 Origin；需要访客真实 IP 时配置 `TRUSTED_PROXY_CIDRS`，见 [代理说明](./docs/deployment-reference.md#qqwry-与可信代理)。
+- `.env`：`PUBLIC_SITE_URL` 填公开站点的完整 Origin（例如 `https://www.example.com`），用于站点地图；与前端公开站点地址保持一致。
 
 ### 3. 构建、初始化和启动
 

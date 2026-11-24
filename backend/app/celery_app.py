@@ -9,6 +9,11 @@ from app.core.config import settings
 # Article counters still use their first-trigger delayed jobs; only todo
 # reminders are periodically checked so edits and restarts remain recoverable.
 BEAT_SCHEDULE: dict = {
+    "cleanup-api-request-logs": {
+        "task": "app.tasks.request_logs.cleanup_request_logs",
+        "schedule": 3600.0,
+        "options": {"expires": 3600},
+    },
     "due-todo-reminders": {
         "task": "app.tasks.todos.send_due_reminders",
         "schedule": 60.0,

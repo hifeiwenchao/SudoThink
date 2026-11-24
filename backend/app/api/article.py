@@ -26,16 +26,17 @@ async def _selected_tags(tag_ids: list[int]) -> list[Tag]:
     return tags
 
 
-async def _serialize(article: Article) -> dict:
-    await article.fetch_related("author", "category", "tags")
-    return {
+async def _serialize(article: Article, *, include_content: bool = True, fetch_related: bool = True) -> dict:
+    if fetch_related:
+        await article.fetch_related("author", "category", "tags")
+    data = {
         "id": article.id,
         "title": article.title,
         "slug": article.slug,
         "summary": article.summary,
-        "content": article.content,
         "cover": article.cover,
         "is_published": article.is_published,
+        "deleted_at": article.deleted_at.isoformat() if article.deleted_at else None,
         "view_count": article.view_count,
         "published_at": article.published_at.isoformat() if article.published_at else None,
         "created_at": article.created_at.isoformat(),
@@ -61,16 +62,37 @@ async def _serialize(article: Article) -> dict:
         ],
     }
 
+    if include_content:
+        data["content"] = article.content
+    return data
+
+
+def _positive_query_int(args, name: str, default: int | None = None, maximum: int = 2147483647) -> int | None:
+    raw = args.get(name, default)
+    if raw is None:
+        return None
+    try:
+        value = int(raw)
+    except (ValueError, TypeError, OverflowError):
+        raise ValidationError(f"{name} must be a positive integer") from None
+    if str(raw) != str(value) or not 1 <= value <= maximum:
+        raise ValidationError(f"{name} must be between 1 and {maximum}")
+    return value
+
+
+def _list_fields() -> list[str]:
+    return [name for name in Article._meta.db_fields if name != "content"]
+
 
 @bp.get("")
 async def list_articles(request: Request):
-    page = max(int(request.args.get("page", 1)), 1)
-    size = min(max(int(request.args.get("size", 10)), 1), 100)
+    page = _positive_query_int(request.args, "page", 1)
+    size = _positive_query_int(request.args, "size", 10, 100)
     q = (request.args.get("q") or "").strip()
-    category_id = request.args.get("category_id")
-    tag_id = request.args.get("tag_id")
+    category_id = _positive_query_int(request.args, "category_id")
+    tag_id = _positive_query_int(request.args, "tag_id")
 
-    qs = Article.filter(is_published=True)
+    qs = Article.filter(is_published=True, deleted_at__isnull=True)
     if q:
         qs = qs.filter(title__icontains=q)
     if category_id:
@@ -83,15 +105,15 @@ async def list_articles(request: Request):
         await qs.order_by("-created_at")
         .offset((page - 1) * size)
         .limit(size)
-        .prefetch_related("author", "category", "tags")
+        .only(*_list_fields()).prefetch_related("author", "category", "tags")
     )
-    items = [await _serialize(a) for a in articles]
+    items = [await _serialize(a, include_content=False, fetch_related=False) for a in articles]
     return success({"items": items, "total": total, "page": page, "size": size})
 
 
 @bp.get("/<aid:int>")
 async def get_article(request: Request, aid: int):
-    article = await Article.get_or_none(id=aid, is_published=True)
+    article = await Article.get_or_none(id=aid, is_published=True, deleted_at__isnull=True)
     if article is None:
         raise NotFoundError("article not found")
     data = await _serialize(article)
@@ -139,7 +161,7 @@ async def create_article(request: Request):
 @bp.put("/<aid:int>")
 @login_required
 async def update_article(request: Request, aid: int):
-    article = await Article.get_or_none(id=aid).prefetch_related("author")
+    article = await Article.get_or_none(id=aid, deleted_at__isnull=True).prefetch_related("author")
     if article is None:
         raise NotFoundError("article not found")
     if article.author_id != request.ctx.user.id and not request.ctx.user.is_admin:
@@ -189,10 +211,11 @@ async def update_article(request: Request, aid: int):
 @bp.delete("/<aid:int>")
 @login_required
 async def delete_article(request: Request, aid: int):
-    article = await Article.get_or_none(id=aid)
+    article = await Article.get_or_none(id=aid, deleted_at__isnull=True)
     if article is None:
         raise NotFoundError("article not found")
     if article.author_id != request.ctx.user.id and not request.ctx.user.is_admin:
         raise ForbiddenError("no permission")
-    await article.delete()
+    article.deleted_at = datetime.now(timezone.utc)
+    await article.save(update_fields=["deleted_at", "updated_at"])
     return success(message="deleted")

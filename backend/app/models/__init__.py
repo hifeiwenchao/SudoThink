@@ -9,5 +9,6 @@ from app.models.donations import DonationSettings
 from app.models.api_request_log import ApiRequestLog
 from app.models.music import MusicSettings
 from app.models.todo import Todo
+from app.models.todo_history import TodoReminderHistory
 
-__all__ = ["User", "Article", "Category", "Tag", "Comment", "AboutPage", "DonationSettings", "ApiRequestLog", "MusicSettings", "Todo"]
+__all__ = ["User", "Article", "Category", "Tag", "Comment", "AboutPage", "DonationSettings", "ApiRequestLog", "MusicSettings", "Todo", "TodoReminderHistory"]

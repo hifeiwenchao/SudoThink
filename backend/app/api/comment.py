@@ -83,7 +83,7 @@ async def _ensure_can_moderate(user: User, article: Article) -> None:
 @bp.get("/articles/<aid:int>/comments")
 async def list_comments(request: Request, aid: int):
     """公开列表：仅返回审核通过的评论。"""
-    if not await Article.exists(id=aid, is_published=True):
+    if not await Article.exists(id=aid, is_published=True, deleted_at__isnull=True):
         raise NotFoundError("article not found")
     page, size = _comment_pagination(request)
     qs = Comment.filter(article_id=aid, is_approved=True)
@@ -107,7 +107,7 @@ async def list_comments(request: Request, aid: int):
 @bp.post("/articles/<aid:int>/comments")
 async def create_comment(request: Request, aid: int):
     """提交评论，默认未审核（is_approved=False）。"""
-    if not await Article.exists(id=aid, is_published=True):
+    if not await Article.exists(id=aid, is_published=True, deleted_at__isnull=True):
         raise NotFoundError("article not found")
     try:
         payload = CommentIn.model_validate(request.json or {})
@@ -154,7 +154,7 @@ async def create_comment(request: Request, aid: int):
 @login_required
 async def list_pending_comments(request: Request, aid: int):
     """审核中评论列表：仅文章作者或管理员可见。"""
-    article = await Article.get_or_none(id=aid)
+    article = await Article.get_or_none(id=aid, deleted_at__isnull=True)
     if article is None:
         raise NotFoundError("article not found")
     await _ensure_can_moderate(request.ctx.user, article)

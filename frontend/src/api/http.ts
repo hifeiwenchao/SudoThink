@@ -1,5 +1,6 @@
 import axios, { type AxiosInstance } from 'axios'
 import { ElMessage } from 'element-plus'
+import { readSession, expireSession } from '@/utils/session'
 
 const baseURL = import.meta.env.VITE_API_BASE_URL || '/api'
 
@@ -9,7 +10,7 @@ export const http: AxiosInstance = axios.create({
 })
 
 http.interceptors.request.use((config) => {
-  const token = localStorage.getItem('access_token')
+  const token = readSession().token
   if (token) {
     config.headers = config.headers || {}
     config.headers.Authorization = `Bearer ${token}`
@@ -34,9 +35,15 @@ http.interceptors.response.use(
       error?.response?.data?.message ||
       error?.message ||
       '网络错误'
-    if (status === 401) {
-      localStorage.removeItem('access_token')
-      ElMessage.error('登录已失效，请重新登录')
+    if (status === 401 && !/\/auth\/(login|register)(?:\?|$)/.test(error?.config?.url || '')) {
+      const authorization = String(error?.config?.headers?.Authorization || '')
+      if (expireSession(authorization.replace(/^Bearer /, ''))) {
+        ElMessage.error('登录已失效，请重新登录')
+        if (window.location.pathname !== '/login') {
+          const redirect = window.location.pathname + window.location.search + window.location.hash
+          window.location.replace(`/login?redirect=${encodeURIComponent(redirect)}`)
+        }
+      }
     } else {
       ElMessage.error(msg)
     }

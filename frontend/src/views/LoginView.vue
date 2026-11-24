@@ -26,6 +26,8 @@ async function submit() {
     // A fresh document prevents cached login code from sharing an old module
     // runtime with backend pages overwritten during a static asset release.
     window.location.replace(getLoginRedirect(route.query.redirect))
+  } catch {
+    // The shared interceptor displays login errors; keep the form available.
   } finally {
     loading.value = false
   }

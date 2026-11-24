@@ -20,7 +20,10 @@ export interface AdminUser {
   created_at: string
 }
 
+export type AdminArticleStatus = 'all' | 'published' | 'draft' | 'trash'
+
 export interface AdminArticleBrief {
+  deleted_at: string | null
   id: number
   title: string
   slug: string
@@ -76,9 +79,9 @@ export const adminApi = {
   toggleActive(uid: number) {
     return http.post<unknown, { id: number; is_active: boolean }>(`/admin/users/${uid}/toggle-active`)
   },
-  listArticles(page = 1, size = 10, q?: string) {
+  listArticles(page = 1, size = 10, q?: string, status: AdminArticleStatus = 'all') {
     return http.get<unknown, PageResp<AdminArticleBrief>>('/admin/articles', {
-      params: { page, size, q },
+      params: { page, size, q, status },
     })
   },
   articleDetail(aid: number) {
@@ -86,6 +89,9 @@ export const adminApi = {
   },
   removeArticle(aid: number) {
     return http.delete<unknown, void>(`/admin/articles/${aid}`)
+  },
+  restoreArticle(aid: number) {
+    return http.post<unknown, Article>(`/admin/articles/${aid}/restore`)
   },
   listComments(page = 1, size = 10, filters: CommentFilters = {}) {
     return http.get<unknown, PageResp<AdminComment>>('/admin/comments', {

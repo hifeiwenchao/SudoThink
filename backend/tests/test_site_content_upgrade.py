@@ -12,6 +12,8 @@ class MySQLMetadata:
     """Small metadata fixture that applies only the expected additive DDL effects."""
     def __init__(self, upgraded=False):
         self.capabilities = SimpleNamespace(dialect="mysql")
+        self.article_deleted_at = upgraded
+        self.article_deleted_at_index = upgraded
         self.weight = upgraded
         self.columns = {"author_id": {"COLUMN_NAME": "author_id", "IS_NULLABLE": "YES" if upgraded else "NO", "COLUMN_TYPE": "int"}}
         self.todo_columns = {name: {"COLUMN_NAME": name} for name in (
@@ -37,6 +39,9 @@ class MySQLMetadata:
         return (0, [])
 
     async def execute_query_dict(self, sql):
+        if "TABLE_NAME = 'articles'" in sql:
+            exists = self.article_deleted_at_index if "STATISTICS" in sql else self.article_deleted_at
+            return [{"COLUMN_NAME": "deleted_at"}] if exists else []
         if "TABLE_NAME = 'categories'" in sql:
             return [{"COLUMN_NAME": "weight"}] if self.weight else []
         if "KEY_COLUMN_USAGE" in sql:
@@ -49,6 +54,12 @@ class MySQLMetadata:
 
     async def execute_script(self, sql):
         self.scripts.append(sql)
+        if "`articles`" in sql:
+            if "ADD COLUMN" in sql:
+                self.article_deleted_at = True
+            if "ADD INDEX" in sql:
+                self.article_deleted_at_index = True
+            return
         if "`categories`" in sql:
             self.weight = True
             return
@@ -96,7 +107,7 @@ class SiteContentUpgradeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(connection.columns["author_id"]["IS_NULLABLE"], "YES")
         self.assertEqual(connection.foreign_keys[0]["DELETE_RULE"], "SET NULL")
         self.assertEqual(connection.records, [{"id": 7, "author_id": 13, "content": "Existing comment", "is_rejected": False, "user_agent": ""}])
-        self.assertEqual(len(connection.scripts), 3)
+        self.assertEqual(len(connection.scripts), 4)
         comment_sql = connection.scripts[1]
         self.assertIn("DROP FOREIGN KEY `legacy_comment_author_fk`", comment_sql)
         self.assertNotIn("ADD CONSTRAINT `legacy_comment_author_fk`", comment_sql)
@@ -106,7 +117,7 @@ class SiteContentUpgradeTests(unittest.IsolatedAsyncioTestCase):
         for unsafe in ("DROP TABLE", "DELETE FROM", "TRUNCATE", "UPDATE `"):
             self.assertNotIn(unsafe, comment_sql.upper())
         await self.upgrade_with(connection)
-        self.assertEqual(len(connection.scripts), 3)
+        self.assertEqual(len(connection.scripts), 4)
 
     async def test_partially_upgraded_table_only_receives_missing_columns(self):
         connection = MySQLMetadata(upgraded=True)
@@ -233,3 +244,24 @@ class SiteContentUpgradeTests(unittest.IsolatedAsyncioTestCase):
         connection.execute_script = AsyncMock(side_effect=RuntimeError("no ALTER privilege"))
         with self.assertRaisesRegex(RuntimeError, "no ALTER privilege"):
             await self.upgrade_with(connection)
+
+    async def test_deleted_at_upgrade_preserves_data_and_adds_index_idempotently(self):
+        connection = MySQLMetadata(upgraded=True)
+        connection.article_deleted_at = False
+        connection.article_deleted_at_index = False
+        await self.upgrade_with(connection)
+        self.assertTrue(connection.article_deleted_at)
+        self.assertTrue(connection.article_deleted_at_index)
+        self.assertEqual(len(connection.scripts), 1)
+        self.assertIn("ADD COLUMN `deleted_at` DATETIME(6) NULL", connection.scripts[0])
+        self.assertIn("ADD INDEX", connection.scripts[0])
+        await self.upgrade_with(connection)
+        self.assertEqual(len(connection.scripts), 1)
+
+    async def test_interrupted_upgrade_adds_missing_index_only(self):
+        connection = MySQLMetadata(upgraded=True)
+        connection.article_deleted_at_index = False
+        await self.upgrade_with(connection)
+        self.assertEqual(len(connection.scripts), 1)
+        self.assertNotIn("ADD COLUMN", connection.scripts[0])
+        self.assertIn("ADD INDEX", connection.scripts[0])

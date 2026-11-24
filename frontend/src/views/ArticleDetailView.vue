@@ -7,12 +7,24 @@ import ArticleContent from '@/components/ArticleContent.vue'
 import ArticleComments from '@/components/ArticleComments.vue'
 import WechatShare from '@/components/WechatShare.vue'
 import { getArticleText } from '@/utils/articleContent'
+import { safeListReturn, canReturnToListHistory } from '@/utils/publicNavigation'
+import { setPageSeo } from '@/utils/seo'
+import { isAdminSite } from '@/site'
 
 interface ContentsItem { id: string; text: string; level: number }
 
 const route = useRoute()
 const router = useRouter()
 const article = ref<Article | null>(null)
+const listReturn = computed(() => safeListReturn(route.query.from))
+function returnToList(event: MouseEvent) {
+  if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return
+  event.preventDefault()
+  const previous = router.options.history.state.back
+  if (canReturnToListHistory(previous, listReturn.value)) router.back()
+  else void router.push(listReturn.value)
+}
+
 const loading = ref(true)
 const loadError = ref<'not-found' | 'network' | null>(null)
 const coverFailed = ref(false)
@@ -44,11 +56,15 @@ async function load() {
   activeSection.value = ''
   try {
     const result = await articleApi.detail(Number(route.params.id))
-    if (version === requestVersion) article.value = result
+    if (version === requestVersion) {
+      article.value = result
+      setPageSeo({ title: result.title, description: result.summary || getArticleText(result.content).slice(0, 160) || result.title, path: '/articles/' + result.id, image: result.cover, type: 'article', noindex: isAdminSite() || !result.is_published })
+    }
   } catch (error: unknown) {
     if (version !== requestVersion) return
     const failure = error as { response?: { status?: number }; code?: number }
     loadError.value = failure?.response?.status === 404 || failure?.code === 404 ? 'not-found' : 'network'
+    setPageSeo({ title: loadError.value === 'not-found' ? '文章未找到' : '文章加载失败', description: '请浏览其他文章或稍后重试。', path: route.path, noindex: true })
   } finally {
     if (version === requestVersion) loading.value = false
   }
@@ -117,7 +133,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="article-detail">
     <div class="detail-path">
-      <RouterLink class="back-link" to="/"><ArrowLeft aria-hidden="true" />返回文章列表</RouterLink>
+      <a class="back-link" :href="listReturn" @click="returnToList"><ArrowLeft aria-hidden="true" />返回文章列表</a>
       <span class="path-label">SUDOTHINK / ARTICLE</span>
     </div>
 
@@ -184,7 +200,7 @@ onBeforeUnmount(() => {
               <span v-for="tag in article.tags" :key="tag.id" class="article-tag"><span aria-hidden="true">#</span>{{ tag.name }}</span>
             </div>
             <div class="end-line"><span class="end-mark" aria-hidden="true">[ EOF ]</span><span>思考在此落笔，探索继续。</span></div>
-            <RouterLink class="back-link end-back-link" to="/"><ArrowLeft aria-hidden="true" />继续阅读其他文章</RouterLink>
+            <a class="back-link end-back-link" :href="listReturn" @click="returnToList"><ArrowLeft aria-hidden="true" />继续阅读其他文章</a>
           </footer>
         </div>
       </div>

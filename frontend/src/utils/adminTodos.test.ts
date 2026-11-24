@@ -36,6 +36,7 @@ const source = script.content
   .replace(/(['"])@\/api\/todos\1/g, JSON.stringify(pathToFileURL(apiTarget).href))
   .replace(/(['"])@\/utils\/todos\1/g, JSON.stringify(new URL('./todos.ts', import.meta.url).href))
   .replace(/(['"])@\/utils\/todoCron\1/g, JSON.stringify(new URL('./todoCron.ts', import.meta.url).href))
+  .replace(/import TodoHistory from ['"]@\/components\/TodoHistory.vue['"]/, 'const TodoHistory = { template: "<div />", props: ["todo", "modelValue"] }')
 const target = `${folder}/AdminTodos.mjs`
 writeFileSync(target, compile(source))
 const template = compileTemplate({ source: descriptor.template!.content, filename: 'AdminTodos.vue', id: 'admin-todos-test', compilerOptions: { bindingMetadata: script.bindings, expressionPlugins: ['typescript'] } })

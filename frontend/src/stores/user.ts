@@ -1,43 +1,26 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, onScopeDispose } from 'vue'
 import { authApi, type User } from '@/api/auth'
+import { readSession, setSession, onSessionChange } from '@/utils/session'
 
 export const useUserStore = defineStore('user', () => {
-  const token = ref<string>(localStorage.getItem('access_token') || '')
-  const user = ref<User | null>(
-    JSON.parse(localStorage.getItem('user') || 'null'),
-  )
-
+  const initial = readSession()
+  const token = ref(initial.token)
+  const user = ref<User | null>(initial.user)
+  const stopSessionListener = onSessionChange((session) => {
+    token.value = session.token
+    user.value = session.user
+  })
+  onScopeDispose(stopSessionListener)
   const isLoggedIn = computed(() => !!token.value)
-
-  function setSession(t: string, u: User) {
-    token.value = t
-    user.value = u
-    localStorage.setItem('access_token', t)
-    localStorage.setItem('user', JSON.stringify(u))
-  }
-
   async function login(username: string, password: string) {
     const data = await authApi.login({ username, password })
     setSession(data.access_token, data.user)
   }
-
-  async function register(payload: {
-    username: string
-    email: string
-    password: string
-    nickname?: string
-  }) {
+  async function register(payload: { username: string; email: string; password: string; nickname?: string }) {
     const data = await authApi.register(payload)
     setSession(data.access_token, data.user)
   }
-
-  function logout() {
-    token.value = ''
-    user.value = null
-    localStorage.removeItem('access_token')
-    localStorage.removeItem('user')
-  }
-
+  function logout() { setSession('', null) }
   return { token, user, isLoggedIn, login, register, logout }
 })

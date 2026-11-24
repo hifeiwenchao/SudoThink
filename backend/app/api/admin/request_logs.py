@@ -1,8 +1,10 @@
 """管理后台 API 请求记录查询。"""
+from datetime import datetime
 from sanic import Blueprint, Request
 
 from app.core.exceptions import ForbiddenError, ValidationError
 from app.core.response import success
+from app.core.request_log_retention import database_time
 from app.middlewares.auth import login_required
 from app.models.api_request_log import ApiRequestLog
 
@@ -50,6 +52,23 @@ async def list_request_logs(request: Request):
     if len(url) > 2048:
         raise ValidationError("URL 最多 2048 个字符")
     qs = ApiRequestLog.all()
+    dates = {}
+    for name in ("created_from", "created_to"):
+        if name not in arguments:
+            continue
+        value = _argument(arguments, name, "")
+        try:
+            if len(value) > 64:
+                raise ValueError
+            dates[name] = database_time(datetime.fromisoformat(value))
+        except (ValueError, OverflowError):
+            raise ValidationError("请求时间须为包含时区的 ISO 时间") from None
+    if len(dates) == 2 and dates["created_from"] > dates["created_to"]:
+        raise ValidationError("开始时间不能晚于结束时间")
+    if "created_from" in dates:
+        qs = qs.filter(created_at__gte=dates["created_from"])
+    if "created_to" in dates:
+        qs = qs.filter(created_at__lte=dates["created_to"])
     if url:
         qs = qs.filter(url__contains=url)
     if "method" in arguments:

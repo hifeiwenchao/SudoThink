@@ -1,7 +1,9 @@
 """鉴权 API。"""
 from sanic import Blueprint, Request
+from sanic.exceptions import BadRequest
+from pydantic import ValidationError as PydanticValidationError
 
-from app.core.exceptions import ForbiddenError, UnauthorizedError
+from app.core.exceptions import ForbiddenError, UnauthorizedError, ValidationError
 from app.core.response import success
 from app.core.security import create_access_token, verify_password
 from app.middlewares.auth import login_required
@@ -32,12 +34,19 @@ async def register(request: Request):
 @bp.post("/login")
 async def login(request: Request):
     try:
-        payload = LoginIn(**(request.json or {}))
-    except PydanticValidationError as e:
-        raise ValidationError(str(e))
+        body = request.json
+        if not isinstance(body, dict):
+            raise ValidationError("login body must be a JSON object")
+        payload = LoginIn.model_validate(body)
+    except (PydanticValidationError, BadRequest) as e:
+        raise ValidationError("invalid login request") from e
 
     user = await User.get_or_none(username=payload.username)
-    if user is None or not verify_password(payload.password, user.password_hash):
+    try:
+        valid_password = user is not None and verify_password(payload.password, user.password_hash)
+    except ValueError:
+        valid_password = False
+    if not valid_password:
         raise UnauthorizedError("invalid username or password")
     if not user.is_active:
         raise UnauthorizedError("user is inactive")

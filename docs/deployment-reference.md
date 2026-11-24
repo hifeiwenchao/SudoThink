@@ -282,3 +282,11 @@ TRUSTED_PROXY_CIDRS=172.30.0.0/24
 ## 已有数据库升级说明
 
 首次部署使用 `init_db.py`；旧安装在启动新版后端前使用 `upgrade_site_content.py`。升级会补齐分类权重、站点设置、打赏与音乐设置、API 请求记录与访客评论字段，保留已有文章、阅读数、分类、管理员、评论和站点设置；已经被旧版删除的驳回评论无法恢复。脚本可重复运行，账号需有 `CREATE`、`ALTER` 权限。完整执行顺序见 [README 的更新流程](../README.md#更新应用)。
+
+## 网站优化版本升级
+
+已有安装先按 README 更新流程执行 `python scripts/upgrade_site_content.py`，幂等补齐文章回收时间及索引、创建待办提醒历史表，再同时更新 backend、worker、beat。原有文章和待办不删除，提醒历史从本次升级后开始记录。
+
+在 `.env` 设置 `PUBLIC_SITE_URL=https://www.example.com` 为实际公开站点地址（HTTP/HTTPS Origin，不含路径），用于后端 sitemap 和 robots；同时保持 `frontend/src/site.ts` 的公开地址一致。替换 NGINX 配置中的公开和管理域名，重载后检查根目录 `/sitemap.xml` 与 `/robots.txt`，管理站应禁止抓取。默认 example.com 仅为模板，未填写真实地址时索引也会使用该示例域名。
+
+请求日志保留期限固定 7 天，无需配置。需运行 worker 和 beat，每小时执行分批清理；升级后已有超过 7 天的日志会在任务执行时删除。发布流程保持原来的 Git 拉取、构建和资源发布步骤。

@@ -58,7 +58,27 @@ export interface TodoPage {
   email_configured: boolean
 }
 
+export interface TodoHistoryEntry {
+  id: number
+  event: 'sent' | 'failed' | 'skipped'
+  period: TodoSkipPeriod | ''
+  scheduled_at: string | null
+  created_at: string
+  next_run_at: string | null
+  error: string
+}
+
+export interface TodoHistoryPage {
+  items: TodoHistoryEntry[]
+  total: number
+  page: number
+  size: number
+}
+
 export const todosApi = {
+  history(id: number, page = 1, size = 10, signal?: AbortSignal) {
+    return http.get<unknown, TodoHistoryPage>(`/admin/todos/${id}/history`, { params: { page, size }, signal })
+  },
   previewSkipPeriod(id: number, period: TodoSkipPeriod, signal?: AbortSignal) {
     return http.post<unknown, TodoSkipPreview>(`/admin/todos/${id}/skip-period/preview`, { period }, { signal })
   },

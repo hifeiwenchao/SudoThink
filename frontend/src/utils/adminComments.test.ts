@@ -50,7 +50,7 @@ type State = {
   load: () => Promise<void>; searchArticles: (query: string) => Promise<void>
   handleApprove: (id: number) => Promise<void>; handleReject: (id: number) => Promise<void>
 }
-const article = { id: 42, title: '相关文章', slug: 'article', is_published: true, view_count: 0, created_at: '2026-11-12T08:00:00Z', author: { id: 1, username: 'admin' } }
+const article = { deleted_at: null, id: 42, title: '相关文章', slug: 'article', is_published: true, view_count: 0, created_at: '2026-11-12T08:00:00Z', author: { id: 1, username: 'admin' } }
 function comment(id: number, status: AdminComment['status'] = 'pending'): AdminComment {
   return {
     id, status, is_approved: status === 'approved', content: `评论 ${id}`, nickname: '访客',
@@ -228,7 +228,7 @@ test('remote article search includes drafts and only the latest query updates th
   const slow = deferred<PageResp<AdminArticleBrief>>()
   const view = await mount({ articles: async (params) => params.q === '旧搜索' ? slow.promise : { items: [{ ...article, id: 43, title: String(params.q || '初始文章'), is_published: false }], total: 1, page: 1, size: 100 } })
   t.after(view.unmount)
-  assert.deepEqual(view.requests.find((request) => request.url === '/admin/articles'), { url: '/admin/articles', params: { page: 1, size: 100, q: undefined } })
+  assert.deepEqual(view.requests.find((request) => request.url === '/admin/articles'), { url: '/admin/articles', params: { page: 1, size: 100, q: undefined, status: 'all' } })
   const older = view.state.searchArticles('旧搜索')
   const newer = view.state.searchArticles('  新搜索  ')
   await newer
@@ -236,5 +236,5 @@ test('remote article search includes drafts and only the latest query updates th
   await older
   assert.deepEqual(view.state.articleOptions.map((item) => [item.title, item.is_published]), [['新搜索', false]])
   assert.equal(view.state.articlesLoading, false)
-  assert.deepEqual(view.requests.at(-1), { url: '/admin/articles', params: { page: 1, size: 100, q: '新搜索' } })
+  assert.deepEqual(view.requests.at(-1), { url: '/admin/articles', params: { page: 1, size: 100, q: '新搜索', status: 'all' } })
 })

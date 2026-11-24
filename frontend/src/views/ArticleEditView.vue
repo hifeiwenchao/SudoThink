@@ -10,6 +10,8 @@ import MediaUpload from '@/components/MediaUpload.vue'
 import ArticleContent from '@/components/ArticleContent.vue'
 import { getArticleText, hasArticleContent, toArticleHtml } from '@/utils/articleContent'
 import type { UploadedMedia } from '@/utils/mediaUpload'
+import { readSession, BEFORE_SESSION_REDIRECT } from '@/utils/session'
+import { readArticleDraft, writeArticleDraft, removeArticleDraft, type ArticleDraft } from '@/utils/articleDraft'
 
 const route = useRoute()
 const router = useRouter()
@@ -40,6 +42,58 @@ const form = reactive({ title: '', summary: '', content: '', cover: '', category
 const snapshot = () => JSON.stringify(form)
 const savedSnapshot = ref(snapshot())
 const isDirty = computed(() => snapshot() !== savedSnapshot.value)
+const draftOwner = readSession().user?.id
+const recoveryDraft = ref<ArticleDraft | null>(null)
+let storageWarningShown = false
+function storageResult(ok: boolean) {
+  if (!ok && !storageWarningShown) {
+    storageWarningShown = true
+    ElMessage.warning('本地草稿无法保存，请及时保存到服务器，避免关闭页面后丢失内容')
+  }
+}
+const draftReady = ref(false)
+let draftArticleId: number | null = null
+let draftTimer: ReturnType<typeof setTimeout> | undefined
+let wroteLocalDraft = false
+let sessionRedirecting = false
+function beforeSessionRedirect() {
+  flushDraft()
+  sessionRedirecting = true
+}
+function flushDraft() {
+  clearTimeout(draftTimer)
+  draftTimer = undefined
+  if (!draftOwner || !draftReady.value || recoveryDraft.value) return
+  if (!isDirty.value) {
+    if (wroteLocalDraft) storageResult(removeArticleDraft(draftOwner, draftArticleId))
+    wroteLocalDraft = false
+    return
+  }
+  const written = writeArticleDraft(draftOwner, draftArticleId, JSON.parse(snapshot()), savedSnapshot.value)
+  wroteLocalDraft = written || wroteLocalDraft
+  storageResult(written)
+}
+function prepareDraft(id: number | null) {
+  draftArticleId = id
+  wroteLocalDraft = false
+  recoveryDraft.value = draftOwner ? readArticleDraft(draftOwner, id) : null
+  draftReady.value = true
+}
+function recoverDraft() {
+  if (!recoveryDraft.value) return
+  Object.assign(form, recoveryDraft.value.form)
+  recoveryDraft.value = null
+  wroteLocalDraft = true
+  flushDraft()
+}
+function discardDraft() {
+  if (draftOwner) storageResult(removeArticleDraft(draftOwner, draftArticleId))
+  recoveryDraft.value = null
+}
+watch(form, () => {
+  if (!draftReady.value || recoveryDraft.value) return
+  if (!draftTimer) draftTimer = setTimeout(() => { draftTimer = undefined; flushDraft() }, 600)
+}, { deep: true, flush: 'sync' })
 const wordCount = computed(() => getArticleText(form.content).replace(/\s/g, '').length)
 const readingMinutes = computed(() => Math.max(1, Math.ceil(wordCount.value / 300)))
 const coverUrl = computed(() => /^https?:\/\//i.test(form.cover.trim()) ? form.cover.trim() : '')
@@ -67,6 +121,9 @@ function fillArticle(article: Article) {
 }
 
 async function loadArticle() {
+  flushDraft()
+  draftReady.value = false
+  recoveryDraft.value = null
   const requestId = ++loadRequestId
   const id = route.params.id ? Number(route.params.id) : null
   const isCurrentRequest = () => requestId === loadRequestId
@@ -80,10 +137,12 @@ async function loadArticle() {
     Object.assign(form, { title: '', summary: '', content: '', cover: '', category_id: null, tag_ids: [] })
     originalTags.value = []
     savedSnapshot.value = snapshot()
+    prepareDraft(null)
     return
   }
   if (id === currentArticleId.value) {
     loading.value = false
+    prepareDraft(id)
     return
   }
   loading.value = true
@@ -92,6 +151,7 @@ async function loadArticle() {
     if (!isCurrentRequest()) return
     fillArticle(article)
     savedAt.value = ''
+    prepareDraft(id)
   } catch {
     if (isCurrentRequest()) loadError.value = true
   } finally {
@@ -100,7 +160,7 @@ async function loadArticle() {
 }
 
 async function submit(publish: boolean) {
-  if (submitting.value || loading.value || loadError.value || hasPendingUploads.value) return
+  if (submitting.value || loading.value || loadError.value || hasPendingUploads.value || recoveryDraft.value) return
   if (!form.title.trim()) {
     ElMessage.warning('请先填写文章标题')
     return
@@ -115,6 +175,7 @@ async function submit(publish: boolean) {
   }
   submitting.value = publish ? 'publish' : 'draft'
   const requestId = loadRequestId
+  const savingDraftId = draftArticleId
   try {
     const payload = {
       title: form.title.trim(),
@@ -130,7 +191,12 @@ async function submit(publish: boolean) {
       ? await articleApi.update(currentArticleId.value, payload)
       : await articleApi.create(payload)
     if (requestId !== loadRequestId) return
+    clearTimeout(draftTimer)
+    draftTimer = undefined
+    draftReady.value = false
     fillArticle(data)
+    if (draftOwner) storageResult(removeArticleDraft(draftOwner, savingDraftId))
+    prepareDraft(data.id)
     savedAt.value = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
     ElMessage.success(publish ? '文章已发布' : '草稿已保存')
     if (isNew) await router.replace({ name: 'article-edit', params: { id: data.id } })
@@ -167,6 +233,7 @@ async function loadTags() {
 }
 
 async function confirmLeave() {
+  flushDraft()
   if (!isDirty.value && !hasPendingUploads.value) return true
   try {
     await ElMessageBox.confirm(hasPendingUploads.value ? '文件正在上传，离开会取消上传，未保存的修改也会丢失。确定离开吗？' : '当前修改尚未保存，离开后将丢失。确定离开吗？', '离开编辑页', {
@@ -181,6 +248,8 @@ async function confirmLeave() {
 }
 
 function beforeUnload(event: BeforeUnloadEvent) {
+  flushDraft()
+  if (sessionRedirecting) return
   if (!isDirty.value && !hasPendingUploads.value) return
   event.preventDefault()
   event.returnValue = ''
@@ -194,9 +263,12 @@ function applyUploadedCover(result: UploadedMedia) {
 onBeforeRouteLeave(confirmLeave)
 onBeforeRouteUpdate((to, from) => to.params.id === from.params.id ? true : confirmLeave())
 window.addEventListener('beforeunload', beforeUnload)
+window.addEventListener(BEFORE_SESSION_REDIRECT, beforeSessionRedirect)
 onBeforeUnmount(() => {
+  flushDraft()
   ++loadRequestId
   window.removeEventListener('beforeunload', beforeUnload)
+  window.removeEventListener(BEFORE_SESSION_REDIRECT, beforeSessionRedirect)
 })
 watch(() => route.params.id, loadArticle, { immediate: true })
 onMounted(loadCategories)
@@ -222,18 +294,24 @@ onMounted(loadTags)
         <el-button :disabled="loading || loadError || !!submitting || hasPendingUploads" @click="previewVisible = true">预览</el-button>
         <el-button
           :loading="submitting === 'draft'"
-          :disabled="loading || loadError || submitting === 'publish' || hasPendingUploads"
+          :disabled="loading || loadError || submitting === 'publish' || hasPendingUploads || !!recoveryDraft"
           @click="submit(false)"
         >{{ isPublished ? '转为草稿' : '保存草稿' }}</el-button>
         <el-button
           type="primary"
           :loading="submitting === 'publish'"
-          :disabled="loading || loadError || submitting === 'draft' || hasPendingUploads"
+          :disabled="loading || loadError || submitting === 'draft' || hasPendingUploads || !!recoveryDraft"
           @click="submit(true)"
         >{{ isPublished ? '更新文章' : '发布文章' }}</el-button>
       </div>
     </header>
 
+    <section v-if="recoveryDraft" class="draft-recovery panel" role="status">
+      <p>发现本账号的本地草稿（{{ new Date(recoveryDraft.savedAt).toLocaleString('zh-CN') }}）。请选择恢复或丢弃后继续编辑。</p>
+      <p v-if="recoveryDraft.baseline !== savedSnapshot">服务器文章已发生变化，恢复将替换编辑框内容；服务器内容将在保存后更新。</p>
+      <el-button type="primary" @click="recoverDraft">恢复本地草稿</el-button>
+      <el-button @click="discardDraft">丢弃本地草稿</el-button>
+    </section>
     <el-result v-if="loadError" icon="error" title="文章加载失败" sub-title="请检查网络或返回文章管理后重试。">
       <template #extra><el-button type="primary" @click="loadArticle">重新加载</el-button></template>
     </el-result>
@@ -248,14 +326,14 @@ onMounted(loadTags)
             placeholder="一个好标题，是故事的开始"
             maxlength="255"
             show-word-limit
-            :disabled="loading || !!submitting"
+            :disabled="loading || !!submitting || !!recoveryDraft"
           />
         </div>
         <div class="body-heading">
           <label>文章正文 <span>*</span></label>
           <span class="body-hint">让想法有条理地呈现</span>
         </div>
-        <RichTextEditor :key="String(route.params.id || 'new')" v-model="form.content" :disabled="loading || !!submitting || coverUploading" @uploading-change="bodyUploading = $event" />
+        <RichTextEditor :key="String(route.params.id || 'new')" v-model="form.content" :disabled="loading || !!submitting || coverUploading || !!recoveryDraft" @uploading-change="bodyUploading = $event" />
         <footer class="writing-footer">
           <span>正文 {{ wordCount.toLocaleString() }} 字</span>
           <span>预计阅读 {{ readingMinutes }} 分钟</span>
@@ -265,7 +343,7 @@ onMounted(loadTags)
       <aside class="settings-column">
         <section class="panel settings-panel">
           <div class="section-heading"><h2>发布设置</h2><span>文章信息</span></div>
-          <el-form :model="form" label-position="top" :disabled="loading || !!submitting">
+          <el-form :model="form" label-position="top" :disabled="loading || !!submitting || !!recoveryDraft">
             <el-form-item label="文章分类">
               <el-select v-model="form.category_id" aria-label="文章分类" placeholder="未分类" clearable :empty-values="[null, undefined]" :value-on-clear="null" :loading="categoriesLoading" :disabled="categoriesLoading || categoriesError" style="width: 100%">
                 <el-option v-for="category in categories" :key="category.id" :label="category.name" :value="category.id" />
@@ -304,7 +382,7 @@ onMounted(loadTags)
             </el-form-item>
             <el-form-item label="封面图片">
               <el-input v-model="form.cover" maxlength="512" placeholder="https://example.com/cover.jpg" clearable :disabled="hasPendingUploads" />
-              <MediaUpload :key="String(route.params.id || 'new')" class="cover-upload" kind="image" :disabled="loading || !!submitting || bodyUploading" @uploading-change="coverUploading = $event" @uploaded="applyUploadedCover" />
+              <MediaUpload :key="String(route.params.id || 'new')" class="cover-upload" kind="image" :disabled="loading || !!submitting || bodyUploading || !!recoveryDraft" @uploading-change="coverUploading = $event" @uploaded="applyUploadedCover" />
               <div v-if="coverUrl" class="cover-preview">
                 <el-image :src="coverUrl" fit="cover" alt="文章封面预览">
                   <template #error><div class="cover-error">图片暂时无法加载</div></template>
@@ -342,6 +420,7 @@ onMounted(loadTags)
 </template>
 
 <style scoped>
+.draft-recovery { padding: 16px 20px; margin-bottom: 20px; }
 .article-workspace { max-width: 1320px; margin: 0 auto; padding: 4px 8px 32px; }
 .workspace-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 26px; }
 .back-button { padding: 0; height: 24px; color: var(--el-text-color-secondary); font-size: 13px; margin-bottom: 12px; }
