@@ -142,7 +142,6 @@ onBeforeUnmount(() => { requestId++ })
       <section id="articles" class="archive" aria-labelledby="archive-heading">
         <div class="archive-heading">
           <div>
-            <p class="eyebrow archive-eyebrow">01 / THE ARCHIVE</p>
             <h2 id="archive-heading">最近的文字<span class="heading-dot">.</span></h2>
           </div>
           <form class="search-form" role="search" @submit.prevent="submitSearch">
@@ -235,16 +234,13 @@ onBeforeUnmount(() => { requestId++ })
 
       <aside class="sidebar" aria-label="站点介绍与文章索引">
         <section id="about" class="about-card" aria-labelledby="about-heading">
-          <p class="eyebrow">02 / ABOUT THIS SPACE</p>
           <div class="about-symbol" aria-hidden="true">&gt;_</div>
           <h2 id="about-heading">思考，不止于此。</h2>
           <p>这里是 SudoThink，一处存放技术手记、实践经验与日常思考的地方。</p>
           <p>相信写下来，才能想得更清楚。也希望这些文字，能为你带来一点新的启发。</p>
-          <div class="about-signature"><span aria-hidden="true">↳</span> Learn. Think. Build.</div>
         </section>
 
         <section v-if="tags.length" class="tag-index" aria-labelledby="tag-heading">
-          <p class="eyebrow">03 / EXPLORE BY TOPIC</p>
           <h2 id="tag-heading">话题索引 <span aria-hidden="true">#</span></h2>
           <div class="topic-tags">
             <button v-for="tag in tags" :key="tag.id" :class="{ active: tagId === tag.id }" :aria-pressed="tagId === tag.id" @click="selectTag(tag.id)"><span aria-hidden="true">#</span> {{ tag.name }}</button>
@@ -256,7 +252,6 @@ onBeforeUnmount(() => { requestId++ })
           <button :disabled="taxonomyLoading" @click="loadTaxonomy"><Refresh aria-hidden="true" />{{ taxonomyLoading ? '正在加载…' : '重新加载索引' }}</button>
         </div>
 
-        <p class="sidebar-note"><span aria-hidden="true">/*</span><br />让想法在文字里沉淀，<br />让好奇心继续向前。<br /><span aria-hidden="true">*/</span></p>
       </aside>
     </div>
   </div>
@@ -299,7 +294,6 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 .content-layout { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 48px; padding-top: 40px; padding-bottom: 70px; border-top: 1px solid var(--blog-border); }
 .archive, .sidebar, #about { min-width: 0; scroll-margin-top: 95px; }
 .archive-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 27px; }
-.archive-eyebrow { font-size: 9px; }
 .archive-heading h2 { margin: 6px 0 0; font-size: 27px; letter-spacing: -1px; line-height: 1.5; font-weight: 700; }
 .heading-dot { color: var(--blog-accent); margin-left: 3px; }
 .search-form { display: flex; align-items: center; gap: 9px; width: 224px; flex-shrink: 0; border: 1px solid var(--blog-border); border-radius: 6px; padding: 0 10px; background: var(--blog-surface); transition: border-color .15s ease; }
@@ -363,8 +357,6 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 .about-symbol { width: 39px; height: 39px; display: flex; align-items: center; justify-content: center; font-family: var(--blog-mono); font-size: 20px; color: var(--blog-accent); background: var(--blog-accent-soft); border: 1px solid color-mix(in srgb, var(--blog-accent) 15%, transparent); border-radius: 8px; margin: 24px 0 16px; }
 .about-card h2 { margin: 0 0 12px; font-size: 16px; font-weight: 650; letter-spacing: -.3px; }
 .about-card > p:not(.eyebrow) { color: var(--blog-muted); font-size: 11px; line-height: 2; margin: 0 0 11px; }
-.about-signature { display: flex; gap: 8px; font-family: var(--blog-mono); font-size: 10px; color: var(--blog-accent); margin-top: 19px; }
-.about-signature span { font-size: 15px; line-height: 1; }
 .tag-index { margin-top: 35px; padding-top: 26px; border-top: 1px dashed var(--blog-border); }
 .tag-index h2 { display: flex; align-items: center; justify-content: space-between; margin: 10px 0 17px; font-size: 14px; font-weight: 600; }
 .tag-index h2 > span { font-family: var(--blog-mono); font-size: 16px; color: var(--blog-muted); }
@@ -376,8 +368,6 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 .taxonomy-error button { border: 0; padding: 0; background: none; color: var(--blog-accent); display: inline-flex; align-items: center; gap: 5px; font-size: 11px; }
 .taxonomy-error button:disabled { cursor: wait; opacity: .6; }
 .taxonomy-error svg { width: 12px; }
-.sidebar-note { margin: 32px 0 0; font-size: 10px; line-height: 2; color: var(--blog-muted); opacity: .7; font-family: var(--blog-mono); }
-.sidebar-note > span { opacity: .7; }
 .empty-state { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 55px 18px 64px; border: 1px dashed var(--blog-border); border-radius: 7px; }
 .empty-symbol { color: var(--blog-accent); font-size: 29px; font-family: var(--blog-mono); }
 .empty-state h3 { font-size: 16px; margin: 20px 0 9px; font-weight: 600; }
@@ -414,7 +404,6 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
   .sidebar { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; border-left: 0; padding: 32px 0 0; border-top: 1px solid var(--blog-border); }
   .tag-index { margin-top: 0; padding-top: 0; border-top: 0; }
   .about-symbol { margin-top: 18px; }
-  .sidebar-note { display: none; }
   .taxonomy-error { margin: 0; }
 }
 @media (max-width: 600px) {

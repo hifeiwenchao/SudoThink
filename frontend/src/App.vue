@@ -80,7 +80,7 @@ const onLogout = () => {
         <div class="blog-footer-note"><span class="blog-footer-prompt" aria-hidden="true">&gt;_</span><span>以文字整理思考，用代码验证想法。</span></div>
         <div class="blog-footer-bottom">
           <div class="blog-footer-meta">
-            <span>© {{ year }} SudoThink <span class="blog-footer-separator">/</span> THINK. BUILD. WRITE.</span>
+            <span>© {{ year }} SudoThink <span class="blog-footer-separator">/</span> NOTES, IDEAS &amp; THINGS I BUILD</span>
             <a v-if="icpNumber" class="icp-link" href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">{{ icpNumber }}</a>
           </div>
           <button type="button" @click="scrollToTop">回到顶部 <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 10 6-6 6 6M12 4v16" /></svg></button>
