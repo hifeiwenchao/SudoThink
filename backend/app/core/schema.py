@@ -136,6 +136,10 @@ async def _upgrade_about_contacts(connection) -> None:
         "x_url": "VARCHAR(512) NOT NULL DEFAULT '' COMMENT 'X 主页'",
         "facebook_url": "VARCHAR(512) NOT NULL DEFAULT '' COMMENT 'Facebook 主页'",
         "instagram_url": "VARCHAR(512) NOT NULL DEFAULT '' COMMENT 'Instagram 主页'",
+        # Nullable columns avoid JSON default-expression requirements on older
+        # MySQL 8 releases. Public serializers normalize historical NULL to [].
+        "featured_article_ids": "JSON NULL COMMENT '精选文章 ID，按展示顺序'",
+        "current_projects": "JSON NULL COMMENT '正在折腾的项目动态'",
     }
     changes = [f"ADD COLUMN `{name}` {definition}" for name, definition in additions.items() if name not in existing]
     if changes:

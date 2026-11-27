@@ -205,6 +205,8 @@ OSS_STATIC_PREFIX=static
 
 生产构建在 `CDN_BASE_URL` 非空时，自动以 `CDN_BASE_URL/OSS_STATIC_PREFIX/` 为资源地址，例如 `https://cdn.example.com/static/`；留空 `CDN_BASE_URL` 则使用站点本身。开发模式始终从本地 Vite 加载。每次发布复用固定目录，构建资源使用稳定文件名，不附加内容哈希，上传时覆盖同名文件。页面 HTML 仍由站点提供，API 保持 `/api` 同源。
 
+前端组件按需加载。项目 NGINX 配置为 HTML、JS、CSS 等文本启用 gzip；CDN 资源绕过该 NGINX，需在阿里 CDN 加速域名的性能优化中另外开启智能压缩（gzip）。用带 `Accept-Encoding: gzip` 的 GET 请求检查 `Content-Encoding: gzip`，不要只根据本地构建报告判断线上压缩已生效。
+
 Vite 和发布脚本使用根目录的同一份 `.env`。Docker Compose 将公开的 `CDN_BASE_URL` 和 `OSS_STATIC_PREFIX` 作为 frontend 构建参数传入；访问密钥仍仅由后端和发布脚本使用，不会作为前端构建参数或客户端环境变量传入。修改这两项中的任一项后，需重新构建前端。
 
 项目提供 [backend/scripts/publish_static_assets.py](../backend/scripts/publish_static_assets.py)。脚本直接从 `CDN_BASE_URL` 和 `OSS_STATIC_PREFIX` 推导上传目录并校验构建地址，无需另设资源 URL。验证全部文件后，将静态文件上传到固定目录，设置正确的 MIME 和 `Cache-Control: public,max-age=0,s-maxage=31536000,must-revalidate`。浏览器使用前会校验缓存，CDN 可缓存一年；CDN 需遵循源站缓存头，或为 `/static/` 配置一年缓存并让浏览器缓存遵循源站（修改了 `OSS_STATIC_PREFIX` 时使用对应路径）。脚本不上传 `index.html`，不清理云端历史资源，也不自动刷新 CDN。

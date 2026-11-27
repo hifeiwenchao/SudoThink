@@ -19,6 +19,7 @@ async function component(path: string, name: string) {
   const script = compileScript(descriptor, { id: name })
   const source = script.content
     .replace(/import .* from '@\/api\/about'/, 'const aboutApi = globalThis.__aboutApi')
+    .replace(/import .* from '@\/api\/article'/, 'const articleApi = globalThis.__articleApi')
     .replace(/import RichTextEditor .*\nimport ArticleContent .*/, 'const RichTextEditor = { template: "<div />" }; const ArticleContent = { template: "<div />" }')
     .replace(/(['"])@\/utils\/([^'"]+)\1/g, (_, _q, file) => JSON.stringify(new URL(`./${file}.ts`, import.meta.url).href))
   writeFileSync(`${folder}/${name}.mjs`, transpile(source))
@@ -49,9 +50,9 @@ test('public contact links hide blank and unsafe fields and expose secure access
   }
 })
 test('admin contacts load, track edits, save, reload and clear without losing the about content', async () => {
-  let stored: any = { id: 1, title: '关于我', content: '<p>介绍</p>', updated_at: null, github_url: 'https://github.com/old', email: 'old@example.com', x_url: '', facebook_url: '', instagram_url: '' }
+  let stored: any = { id: 1, title: '关于我', content: '<p>介绍</p>', updated_at: null, github_url: 'https://github.com/old', email: 'old@example.com', x_url: '', facebook_url: '', instagram_url: '', featured_article_ids: [2, 5], current_projects: [{ name: '小项目', description: '正在开发', url: 'https://github.com/example/project' }] }
   const saves: any[] = []
-  Object.assign(globalThis, { __aboutApi: { adminGet: async () => ({ ...stored }), save: async (input: any) => { saves.push(input); stored = { ...stored, ...input }; return { ...stored } } } })
+  Object.assign(globalThis, { __aboutApi: { adminGet: async () => ({ ...stored }), save: async (input: any) => { saves.push(input); stored = { ...stored, ...input }; return { ...stored } } }, __articleApi: { list: async () => ({ items: [{ id: 2, title: '文章二' }, { id: 5, title: '文章五' }], total: 2 }) } })
   const AdminAbout = await component('../views/AdminAbout.vue', 'admin-about')
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: AdminAbout }] })
   await router.push('/'); await router.isReady()
@@ -68,10 +69,13 @@ test('admin contacts load, track edits, save, reload and clear without losing th
   }
   async function save() { [...view.container.querySelectorAll('button')].find(button => button.textContent?.includes('保存内容'))!.click(); await settle() }
   try {
+    assert.ok(view.container.querySelector('[aria-labelledby="sidebar-settings-heading"]'), 'sidebar configuration is visible in About settings')
+    assert.equal((view.container.querySelector('#project-0-name') as HTMLInputElement)?.value, '小项目')
     assert.equal((view.container.querySelector('#about-github_url') as HTMLInputElement)?.value, stored.github_url)
     edit('github_url', 'https://github.com/new'); edit('email', 'new@example.com'); edit('x_url', 'https://x.com/new'); edit('facebook_url', 'https://facebook.com/new'); edit('instagram_url', 'https://instagram.com/new')
     await nextTick(); assert.match(view.container.textContent!, /有未保存的修改/)
     await save(); assert.equal(saves.length, 1); assert.equal(saves[0].instagram_url, 'https://instagram.com/new'); assert.equal(saves[0].content, '<p>介绍</p>')
+    assert.deepEqual(saves[0].featured_article_ids, [2, 5]); assert.deepEqual(saves[0].current_projects, stored.current_projects)
     assert.doesNotMatch(view.container.textContent!, /有未保存的修改/)
     view.unmount(); view = await mount()
     assert.equal((view.container.querySelector('#about-email') as HTMLInputElement).value, 'new@example.com')
@@ -80,5 +84,11 @@ test('admin contacts load, track edits, save, reload and clear without losing th
     await save(); assert.equal(saves.length, 2)
     for (const key of ['github_url', 'email', 'x_url', 'facebook_url', 'instagram_url']) assert.equal(stored[key], '')
     view.unmount(); view = await mount(); assert.equal((view.container.querySelector('#about-github_url') as HTMLInputElement).value, '')
+    const projectUrl = view.container.querySelector('#project-0-url') as HTMLInputElement
+    projectUrl.value = 'javascript:alert(1)'; projectUrl.dispatchEvent(new dom.window.Event('input', { bubbles: true })); await nextTick()
+    await save(); assert.equal(saves.length, 2, 'unsafe project links cannot be saved')
+    assert.match(view.container.textContent!, /完整的 http/)
+    view.container.querySelector<HTMLButtonElement>('button[aria-label="移除项目 1"]')!.click(); await nextTick()
+    await save(); assert.equal(saves.length, 3); assert.deepEqual(saves[2].current_projects, [])
   } finally { view.unmount() }
 })

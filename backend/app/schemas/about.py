@@ -1,11 +1,27 @@
 """“关于我”编辑输入。"""
 import unicodedata
-from typing import Literal
+from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
 from pydantic import AnyHttpUrl, BaseModel, EmailStr, Field, TypeAdapter, field_validator
 
 _HTTP_URL = TypeAdapter(AnyHttpUrl)
+
+
+class CurrentProjectIn(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+    description: str = Field(default="", max_length=160)
+    url: str = Field(default="", max_length=512)
+
+    @field_validator("name", "description", mode="before")
+    @classmethod
+    def strip_text(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("url", mode="before")
+    @classmethod
+    def safe_url(cls, value):
+        return AboutIn.validate_contact_url(value)
 
 
 class AboutIn(BaseModel):
@@ -16,6 +32,15 @@ class AboutIn(BaseModel):
     x_url: str = Field(default="", max_length=512)
     facebook_url: str = Field(default="", max_length=512)
     instagram_url: str = Field(default="", max_length=512)
+    featured_article_ids: list[Annotated[int, Field(strict=True, gt=0)]] = Field(default_factory=list, max_length=5)
+    current_projects: list[CurrentProjectIn] = Field(default_factory=list, max_length=3)
+
+    @field_validator("featured_article_ids")
+    @classmethod
+    def unique_featured_ids(cls, value):
+        if len(set(value)) != len(value):
+            raise ValueError("featured article IDs must not contain duplicates")
+        return value
 
     @field_validator("email", mode="before")
     @classmethod

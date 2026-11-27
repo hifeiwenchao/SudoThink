@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, ArrowRight, Clock, List, Picture, RefreshRight, View } from '@element-plus/icons-vue'
-import { articleApi, type Article } from '@/api/article'
+import { ArrowLeft, ArrowRight, ArrowUp, ChatLineSquare, Clock, List, Picture, RefreshRight, View } from '@element-plus/icons-vue'
+import { articleApi, type Article, type ArticleRecommendation } from '@/api/article'
 import ArticleContent from '@/components/ArticleContent.vue'
 import ArticleComments from '@/components/ArticleComments.vue'
 import WechatShare from '@/components/WechatShare.vue'
 import { getArticleText } from '@/utils/articleContent'
-import { safeListReturn, canReturnToListHistory } from '@/utils/publicNavigation'
+import { safeListReturn, canReturnToListHistory, articleQuery } from '@/utils/publicNavigation'
 import { setPageSeo } from '@/utils/seo'
 import { isAdminSite } from '@/site'
+import { readingProgress } from '@/utils/readingProgress'
 
 interface ContentsItem { id: string; text: string; level: number }
 
@@ -29,6 +30,10 @@ const loading = ref(true)
 const loadError = ref<'not-found' | 'network' | null>(null)
 const coverFailed = ref(false)
 const readingBody = ref<HTMLElement | null>(null)
+const relatedArticles = ref<ArticleRecommendation[]>([])
+const progress = ref(0)
+const readingStarted = ref(false)
+let readingResizeObserver: ResizeObserver | undefined
 const contents = ref<ContentsItem[]>([])
 const activeSection = ref('')
 const mobileContentsOpen = ref(false)
@@ -58,6 +63,12 @@ async function load() {
   contents.value = []
   headingElements = []
   activeSection.value = ''
+  relatedArticles.value = []
+  progress.value = 0
+  readingStarted.value = false
+  readingResizeObserver?.disconnect()
+  const id = Number(route.params.id)
+  void loadRelated(id, version)
   try {
     const result = await articleApi.detail(Number(route.params.id))
     if (version === requestVersion) {
@@ -74,8 +85,23 @@ async function load() {
   }
 }
 
+async function loadRelated(id: number, version: number) {
+  try {
+    const result = await articleApi.related(id)
+    if (version === requestVersion) relatedArticles.value = result.filter((item) => item.id !== id).slice(0, 3)
+  } catch {
+    if (version === requestVersion) relatedArticles.value = []
+  }
+}
+
 function updateActiveSection() {
   scrollFrame = 0
+  const prose = readingBody.value?.querySelector<HTMLElement>('.article-prose')
+  if (prose) {
+    const bounds = prose.getBoundingClientRect()
+    progress.value = readingProgress(bounds.top, bounds.height, window.innerHeight)
+    readingStarted.value = bounds.top <= 164
+  }
   if (!headingElements.length) return
   let current = headingElements[0]!
   for (const heading of headingElements) {
@@ -83,6 +109,20 @@ function updateActiveSection() {
     current = heading
   }
   activeSection.value = current.id
+}
+
+function goToComments() {
+  const heading = document.getElementById(`comments-title-${article.value?.id}`)
+  if (!heading) return
+  heading.tabIndex = -1
+  heading.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' })
+  heading.focus({ preventScroll: true })
+}
+
+function goToTop() {
+  window.scrollTo({ top: 0, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' })
+  const title = document.getElementById('article-title')
+  title?.focus({ preventScroll: true })
 }
 
 function queueSectionUpdate() {
@@ -118,6 +158,8 @@ function onReadingResize() {
 
 async function buildContents() {
   await nextTick()
+  readingResizeObserver?.disconnect()
+  if (readingBody.value) readingResizeObserver?.observe(readingBody.value)
   headingElements = Array.from(readingBody.value?.querySelectorAll<HTMLElement>('.article-prose h2, .article-prose h3, .article-prose h4') || [])
   const usedIds = new Set<string>()
   contents.value = headingElements.map((heading, index) => {
@@ -140,11 +182,14 @@ watch(() => route.params.id, load, { immediate: true })
 watch([() => article.value?.content, loading], buildContents, { flush: 'post' })
 
 onMounted(() => {
+  readingResizeObserver = new ResizeObserver(queueSectionUpdate)
+  if (readingBody.value) readingResizeObserver.observe(readingBody.value)
   window.addEventListener('scroll', queueSectionUpdate, { passive: true })
   window.addEventListener('resize', onReadingResize, { passive: true })
 })
 onBeforeUnmount(() => {
   requestVersion++
+  readingResizeObserver?.disconnect()
   window.removeEventListener('scroll', queueSectionUpdate)
   window.removeEventListener('resize', onReadingResize)
   if (scrollFrame) window.cancelAnimationFrame(scrollFrame)
@@ -180,11 +225,12 @@ onBeforeUnmount(() => {
       </el-drawer>
       <header class="article-header">
         <div class="article-eyebrow">
-          <span class="category-label">{{ article.category?.name || '未分类' }}</span>
+          <RouterLink v-if="article.category" class="category-label" :to="{ path: '/', query: articleQuery({ q: '', category: article.category.id, page: 1 }), hash: '#articles' }">{{ article.category.name }}</RouterLink>
+          <span v-else class="category-label">未分类</span>
           <span v-if="formattedDate" class="meta-slash">/</span>
           <time v-if="formattedDate" :datetime="articleDate">{{ formattedDate }}</time>
         </div>
-        <h1>{{ article.title }}</h1>
+        <h1 id="article-title" tabindex="-1">{{ article.title }}</h1>
         <p v-if="article.summary" class="article-summary">{{ article.summary }}</p>
         <div class="article-meta">
           <span class="author-meta"><span class="author-initial" aria-hidden="true">{{ authorName.slice(0, 1).toUpperCase() }}</span>{{ authorName }}</span>
@@ -195,6 +241,13 @@ onBeforeUnmount(() => {
       </header>
 
       <div class="reading-grid">
+        <div class="reading-actions-track">
+          <nav v-show="readingStarted" class="reading-actions" aria-label="阅读操作">
+            <span class="reading-progress" role="progressbar" aria-label="正文阅读进度" :aria-valuenow="progress" :aria-valuemin="0" :aria-valuemax="100">{{ progress }}<small>%</small></span>
+            <button type="button" aria-label="跳转到评论" title="跳转到评论" @click="goToComments"><ChatLineSquare aria-hidden="true" /></button>
+            <button type="button" aria-label="回到顶部" title="回到顶部" @click="goToTop"><ArrowUp aria-hidden="true" /></button>
+          </nav>
+        </div>
         <aside class="reading-aside" :class="{ 'without-contents': !contents.length }" aria-label="阅读导航">
           <details v-if="contents.length" class="contents-panel" open>
             <summary><span>本页目录 <small>CONTENTS</small></span><span class="contents-count">{{ String(contents.length).padStart(2, '0') }}</span></summary>
@@ -213,6 +266,15 @@ onBeforeUnmount(() => {
             <span class="note-label">阅读这篇文章</span>
             <span>{{ wordCount.toLocaleString() }} 字 <span class="note-dot">·</span> 约 {{ readingMinutes }} 分钟</span>
           </div>
+          <nav v-if="relatedArticles.length" class="related-articles" aria-label="相关阅读">
+            <h2>继续探索 <small>READ NEXT</small></h2>
+            <RouterLink v-for="item in relatedArticles" :key="item.id" class="related-article" :to="{ path: `/articles/${item.id}`, query: { from: listReturn } }">
+              <span v-if="item.category" class="related-category">{{ item.category.name }}</span>
+              <strong>{{ item.title }}</strong>
+              <span v-if="item.summary" class="related-summary">{{ item.summary }}</span>
+              <span class="related-arrow" aria-hidden="true">↗</span>
+            </RouterLink>
+          </nav>
         </aside>
 
         <div ref="readingBody" class="reading-body">
@@ -224,7 +286,7 @@ onBeforeUnmount(() => {
           <ArticleComments :key="article.id" :article-id="article.id" />
           <footer class="article-end">
             <div v-if="article.tags.length" class="article-tags" aria-label="文章标签">
-              <span v-for="tag in article.tags" :key="tag.id" class="article-tag"><span aria-hidden="true">#</span>{{ tag.name }}</span>
+              <RouterLink v-for="tag in article.tags" :key="tag.id" class="article-tag" :to="{ path: '/', query: articleQuery({ q: '', tag: tag.id, page: 1 }), hash: '#articles' }"><span aria-hidden="true">#</span>{{ tag.name }}</RouterLink>
             </div>
             <div class="end-line"><span class="end-mark" aria-hidden="true">[ EOF ]</span><span>思考在此落笔，探索继续。</span></div>
             <a class="back-link end-back-link" :href="listReturn" @click="returnToList"><ArrowLeft aria-hidden="true" />继续阅读其他文章</a>
@@ -236,7 +298,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.article-detail { width: min(1120px, calc(100% - 64px)); margin: 0 auto; padding: 36px 0 88px; color: var(--blog-text); }
+.article-detail { box-sizing: border-box; width: min(1280px, calc(100% - 64px)); margin: 0 auto; padding: 36px 0 88px 96px; color: var(--blog-text); }
 .detail-path { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 58px; }
 .back-link { display: inline-flex; align-items: center; gap: 8px; color: var(--blog-muted); font-size: 13px; text-decoration: none; transition: color .2s; }
 .back-link:hover, .back-link:focus-visible { color: var(--blog-accent); }
@@ -245,6 +307,9 @@ onBeforeUnmount(() => {
 .article-header { max-width: 720px; margin-bottom: 40px; }
 .article-eyebrow { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; color: var(--blog-muted); font: 12px var(--blog-mono); }
 .category-label { color: var(--blog-accent); font-weight: 600; overflow-wrap: anywhere; min-width: 0; }
+.category-label, .article-tag { text-decoration: none; }
+a.category-label:hover, a.article-tag:hover { text-decoration: underline; }
+a.category-label:focus-visible, a.article-tag:focus-visible { outline: 2px solid var(--blog-accent); outline-offset: 4px; }
 .meta-slash { color: var(--blog-border); }
 .article-header h1 { margin: 22px 0 18px; font-size: clamp(30px, 3.8vw, 44px); font-weight: 750; line-height: 1.35; letter-spacing: -.035em; overflow-wrap: anywhere; }
 .article-summary { margin: 0; color: var(--blog-muted); font-size: 17px; line-height: 1.85; overflow-wrap: anywhere; }
@@ -252,15 +317,32 @@ onBeforeUnmount(() => {
 .article-meta > span { display: inline-flex; align-items: center; gap: 7px; max-width: 100%; overflow-wrap: anywhere; }
 .article-meta .author-meta { gap: 9px; color: var(--blog-text); font-weight: 500; }
 .author-initial { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 1px solid var(--blog-border); border-radius: 7px; background: var(--blog-surface-alt); color: var(--blog-accent); font: 12px var(--blog-mono); }
-.reading-grid { display: grid; grid-template-columns: minmax(0, 720px) minmax(0, 240px); gap: 64px; align-items: start; }
+.reading-grid { position: relative; display: grid; grid-template-columns: minmax(0, 720px) minmax(0, 280px); gap: 56px; align-items: start; }
+.reading-actions-track { position: absolute; top: 0; bottom: 0; left: -88px; width: 52px; }
+.reading-actions { position: sticky; top: 180px; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 10px 4px; border: 1px solid var(--blog-border); border-radius: 10px; background: var(--blog-surface); }
+.reading-progress { padding: 6px 0; color: var(--blog-accent); font: 14px var(--blog-mono); }
+.reading-progress small { font-size: 9px; }
+.reading-actions button { display: grid; place-items: center; width: 38px; height: 38px; padding: 9px; border: 0; border-radius: 6px; background: transparent; color: var(--blog-muted); cursor: pointer; }
+.reading-actions button:hover { background: var(--blog-accent-soft); color: var(--blog-accent); }
+.reading-actions svg { width: 20px; height: 20px; }
+.related-articles { margin-top: 28px; border-top: 1px solid var(--blog-border); }
+.related-articles h2 { display: flex; align-items: center; gap: 10px; margin: 20px 0 4px; font-size: 12px; }
+.related-articles h2 small { color: var(--blog-muted); font: 9px var(--blog-mono); letter-spacing: .05em; }
+.related-article { position: relative; display: flex; flex-direction: column; gap: 8px; padding: 18px 22px 18px 0; border-bottom: 1px solid var(--blog-border); color: var(--blog-text); text-decoration: none; overflow-wrap: anywhere; }
+.related-category { color: var(--blog-accent); font-size: 10px; }
+.related-article strong { font-size: 13px; line-height: 1.7; font-weight: 600; }
+.related-summary { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--blog-muted); font-size: 11px; line-height: 1.8; }
+.related-arrow { position: absolute; right: 0; top: 19px; color: var(--blog-muted); }
+.related-article:hover strong, .related-article:hover .related-arrow { color: var(--blog-accent); }
+.reading-body :deep(.comments-header h2) { scroll-margin-top: 120px; }
 .reading-body { grid-column: 1; grid-row: 1; min-width: 0; }
-.reading-aside { grid-column: 2; grid-row: 1; position: sticky; top: 110px; min-width: 0; }
+.reading-aside { grid-column: 2; grid-row: 1; position: sticky; top: 110px; min-width: 0; max-height: calc(100dvh - 140px); overflow-y: auto; }
 .contents-panel { border-top: 1px solid var(--blog-border); }
 .contents-panel summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 0; color: var(--blog-text); cursor: pointer; list-style: none; font-size: 12px; font-weight: 600; }
 .contents-panel summary::-webkit-details-marker { display: none; }
 .contents-panel summary small { margin-left: 7px; color: var(--blog-muted); font: 9px var(--blog-mono); letter-spacing: .05em; }
 .contents-count { color: var(--blog-accent); font: 11px var(--blog-mono); }
-.contents-panel nav { display: flex; flex-direction: column; max-height: min(60vh, 560px); overflow-y: auto; padding: 2px 0 4px; }
+.contents-panel nav { display: flex; flex-direction: column; max-height: min(40vh, 420px); overflow-y: auto; padding: 2px 0 4px; }
 .contents-link { padding: 9px 13px; border-left: 1px solid var(--blog-border); color: var(--blog-muted); font-size: 12px; line-height: 1.6; text-decoration: none; overflow-wrap: anywhere; transition: color .2s, background .2s, border-color .2s; }
 .contents-link.level-3 { padding-left: 24px; }
 .contents-link.level-4 { padding-left: 35px; }
@@ -302,6 +384,10 @@ onBeforeUnmount(() => {
 :deep(.mobile-contents-drawer) { color: var(--blog-text); background: var(--blog-surface); border-radius: 16px 16px 0 0; }
 :deep(.mobile-contents-drawer .el-drawer__header) { margin-bottom: 0; padding: 20px 24px 16px; border-bottom: 1px solid var(--blog-border); color: var(--blog-text); }
 :deep(.mobile-contents-drawer .el-drawer__body) { overscroll-behavior: contain; padding: 16px 20px max(20px, env(safe-area-inset-bottom)); }
+@media (max-width: 1100px) {
+  .article-detail { padding-left: 0; }
+  .reading-actions-track { display: none; }
+}
 @media (max-width: 1000px) {
   .reading-grid { grid-template-columns: minmax(0, 1fr) 200px; gap: 36px; }
   .article-header { max-width: calc(100% - 236px); }
@@ -316,7 +402,9 @@ onBeforeUnmount(() => {
   .article-summary { font-size: 15px; }
   .article-meta { column-gap: 16px; margin-top: 23px; padding-bottom: 24px; font-size: 11px; }
   .reading-grid { display: flex; flex-direction: column; gap: 28px; }
-  .reading-aside { display: none; }
+  .reading-aside { display: block; position: static; order: 2; width: 100%; max-height: none; overflow: visible; }
+  .reading-aside .contents-panel { display: none; }
+  .related-articles { margin-top: 0; }
   .mobile-contents-trigger { display: flex; position: fixed; z-index: 44; right: calc(80px + env(safe-area-inset-right)); bottom: calc(12px + env(safe-area-inset-bottom)); flex-direction: column; align-items: center; justify-content: center; gap: 3px; width: 52px; min-height: 60px; border: 1px solid var(--blog-border); border-radius: 10px; background: var(--blog-surface); color: var(--blog-muted); box-shadow: 0 4px 18px rgb(0 0 0 / .08); font: inherit; font-size: 11px; cursor: pointer; }
   .mobile-contents-trigger svg { width: 19px; height: 19px; }
   .mobile-contents-trigger:hover { color: var(--blog-accent); border-color: var(--blog-accent); }
@@ -329,7 +417,6 @@ onBeforeUnmount(() => {
   .contents-count { margin-left: auto; }
   .contents-panel nav { padding-bottom: 14px; max-height: 260px; }
   .reading-note { display: none; }
-  .without-contents { display: none; }
   .article-cover { margin-bottom: 28px; border-radius: 7px; }
   .reading-body :deep(.article-prose) { font-size: 15px; line-height: 1.95; }
   .reading-body :deep(.article-prose pre) { padding: 18px; }

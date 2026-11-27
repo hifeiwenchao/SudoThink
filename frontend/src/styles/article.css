@@ -58,7 +58,9 @@
 .article-prose img { display: block; max-width: 100%; height: auto; margin: 1.2em auto; border-radius: 6px; }
 .article-prose video { display: block; max-width: 100%; height: auto; margin: 1.2em auto; border-radius: 6px; background: #111; }
 .article-prose a { color: var(--el-color-primary); text-decoration: underline; text-underline-offset: 3px; }
-.article-prose table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 1.5em 0; font-size: .9em; }
-.article-prose th, .article-prose td { padding: .65em .9em; border: 1px solid var(--el-border-color); text-align: left; min-width: 5em; }
+.article-prose table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 1.5em 0; font-size: .9em; overscroll-behavior-x: contain; scrollbar-width: thin; }
+.article-prose th, .article-prose td { position: relative; padding: .65em .9em; border: 1px solid var(--el-border-color); text-align: left; min-width: 5em; vertical-align: top; }
+.article-prose th > :last-child, .article-prose td > :last-child { margin-bottom: 0; }
+.editor-document .selectedCell::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: var(--el-color-primary-light-8); opacity: .45; }
 .article-prose th { background: var(--app-quote-bg); font-weight: 600; }
 .article-prose hr { border: 0; border-top: 1px solid var(--el-border-color-lighter); margin: 2em 0; }

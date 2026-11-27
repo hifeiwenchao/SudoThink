@@ -191,7 +191,9 @@ class SiteContentTests(unittest.IsolatedAsyncioTestCase):
         })))
         self.assertEqual(first["title"], "About the author")
         self.assertIsInstance(first["updated_at"], str)
-        self.assertEqual(self.data(await public_read(self.request())), first)
+        self.assertEqual(self.data(await public_read(self.request())), {
+            key: value for key, value in first.items() if key not in {"featured_article_ids", "current_projects"}
+        })
         self.assertEqual(self.data(await admin_read(self.request(self.admin))), first)
         await save(self.request(self.admin, {"title": "Updated", "content": ""}))
         updated = self.data(await public_read(self.request()))

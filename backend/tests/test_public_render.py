@@ -84,6 +84,13 @@ class PublicRenderTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status, 503)
         self.assertIn('noindex', response.headers['X-Robots-Tag'])
 
+    async def test_table_only_article_has_readable_cells_and_rows_in_initial_html(self):
+        self.published.content = '<table><thead><tr><th>Name</th><th>Value</th></tr></thead><tbody><tr><td>A &amp; B</td><td>42</td></tr></tbody><tfoot><tr><td>Total</td><td>42</td></tr></tfoot></table>'
+        await self.published.save()
+        body = (await self.render(f'/articles/{self.published.id}')).body.decode()
+        self.assertIn('Name\tValue\nA &amp; B\t42\nTotal\t42', body)
+        self.assertNotIn('&lt;table&gt;', body)
+
 class TemplateFetchTests(unittest.IsolatedAsyncioTestCase):
     async def test_fetch_caps_bytes_and_rejects_invalid_template(self):
         from app.api import public_render as render
@@ -106,6 +113,14 @@ class TemplateFetchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(plain_content('Plain text\nNext line'), 'Plain text\nNext line')
         self.assertEqual(plain_content('Literal <example> & escaped &lt;example&gt;\nNext'), 'Literal <example> & escaped &lt;example&gt;\nNext')
         self.assertEqual(plain_content('<img alt><p>Safe</p><script>hidden</script>'), 'Safe')
+
+    async def test_table_fragments_are_rich_text_with_readable_boundaries(self):
+        from app.api.public_render import plain_content
+        for markup in ('<table><tr><td>One</td><td>Two</td></tr></table>',
+                       '<tbody><tr><td>One</td><td>Two</td></tr></tbody>',
+                       '<tr><th>One</th><th>Two</th></tr>', '<td>One</td><td>Two</td>'):
+            with self.subTest(markup=markup):
+                self.assertEqual(plain_content(markup), 'One\tTwo')
 
     async def test_cache_and_no_redirect(self):
         from app.api import public_render as render

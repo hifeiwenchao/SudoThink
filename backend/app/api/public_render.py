@@ -17,7 +17,7 @@ from app.models.article import Article
 
 bp = Blueprint("public_render", url_prefix="/seo")
 MAX_TEMPLATE_BYTES = 2 * 1024 * 1024
-RICH_TEXT_TAG = re.compile(r'<\/?(?:p|div|h[1-6]|ul|ol|li|blockquote|pre|code|img|video|br|strong|b|em|i|u|s|a|hr|script|iframe|style)\b[^>]*>', re.I)
+RICH_TEXT_TAG = re.compile(r'<\/?(?:p|div|h[1-6]|ul|ol|li|blockquote|pre|code|img|video|br|strong|b|em|i|u|s|a|hr|table|thead|tbody|tfoot|tr|th|td|script|iframe|style)\b[^>]*>', re.I)
 _template_cache = None
 
 
@@ -64,7 +64,7 @@ class PlainContent(HTMLParser):
             self.hidden.append(tag)
         if self.hidden:
             return
-        if tag in {"p", "div", "br", "li", "h1", "h2", "h3", "h4", "pre", "blockquote"}:
+        if tag in {"p", "div", "br", "li", "h1", "h2", "h3", "h4", "pre", "blockquote", "table", "thead", "tbody", "tfoot", "tr"}:
             self.parts.append("\n")
         if tag == "img":
             self.parts.append(" " + (dict(attrs).get("alt") or "") + " ")
@@ -72,8 +72,10 @@ class PlainContent(HTMLParser):
     def handle_endtag(self, tag):
         if self.hidden and tag == self.hidden[-1]:
             self.hidden.pop()
-        elif not self.hidden and tag in {"p", "div", "li", "pre", "blockquote"}:
+        elif not self.hidden and tag in {"p", "div", "li", "pre", "blockquote", "table", "thead", "tbody", "tfoot", "tr"}:
             self.parts.append("\n")
+        elif not self.hidden and tag in {"th", "td"}:
+            self.parts.append("\t")
 
     def handle_data(self, data):
         if not self.hidden:

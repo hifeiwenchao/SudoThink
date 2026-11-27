@@ -9,6 +9,7 @@ import { Link, Picture, VideoCamera, RefreshLeft, RefreshRight, Minus } from '@e
 import { ElMessage } from 'element-plus'
 import { sanitizeArticleHtml, toArticleHtml } from '@/utils/articleContent'
 import { Video } from '@/utils/editorVideo'
+import { articleTableExtensions } from '@/utils/editorTable'
 import type { UploadedMedia } from '@/utils/mediaUpload'
 import MediaUpload from '@/components/MediaUpload.vue'
 import '@/styles/article.css'
@@ -34,6 +35,7 @@ const editor = useEditor({
     }),
     ArticleImage,
     Video,
+    ...articleTableExtensions,
     Placeholder.configure({ placeholder: '写下你的想法，或者粘贴已有内容…' }),
     TextAlign.configure({ types: ['heading', 'paragraph'] }),
   ],
@@ -57,7 +59,9 @@ const editor = useEditor({
 watch(() => props.modelValue, (value) => {
   if (!editor.value) return
   const html = toArticleHtml(value)
-  if (editor.value.getHTML() !== html) editor.value.commands.setContent(html, { emitUpdate: false })
+  // A v-model echo may omit redundant spans or normalize media attributes.
+  // Compare the same safe representation so an edit never replaces its own document/selection.
+  if (toArticleHtml(editor.value.getHTML()) !== html) editor.value.commands.setContent(html, { emitUpdate: false })
 })
 watch(editorDisabled, (disabled) => editor.value?.setEditable(!disabled))
 
@@ -129,6 +133,21 @@ function removeLink() {
   editor.value?.chain().focus().extendMarkRange('link').unsetLink().run()
   dialog.value = null
 }
+
+const tableActions = [
+  { command: 'addRowBefore', label: '上方插入行' },
+  { command: 'addRowAfter', label: '下方插入行' },
+  { command: 'addColumnBefore', label: '左侧插入列' },
+  { command: 'addColumnAfter', label: '右侧插入列' },
+  { command: 'deleteRow', label: '删除行' },
+  { command: 'deleteColumn', label: '删除列' },
+  { command: 'deleteTable', label: '删除表格' },
+] as const
+type TableCommand = typeof tableActions[number]['command']
+function editTable(command: TableCommand) {
+  if (editorDisabled.value) return
+  editor.value?.chain().focus()[command]().run()
+}
 </script>
 
 <template>
@@ -170,6 +189,10 @@ function removeLink() {
         <button type="button" class="tool-button" title="撤销（⌘ / Ctrl + Z）" aria-label="撤销" :disabled="editorDisabled || !editor.can().undo()" @mousedown.prevent @click="editor.chain().focus().undo().run()"><el-icon><RefreshLeft /></el-icon></button>
         <button type="button" class="tool-button" title="重做" aria-label="重做" :disabled="editorDisabled || !editor.can().redo()" @mousedown.prevent @click="editor.chain().focus().redo().run()"><el-icon><RefreshRight /></el-icon></button>
       </div>
+      <button type="button" class="tool-button table-button" title="插入 3 × 3 表格（含表头）" aria-label="插入表格" :disabled="editorDisabled || !editor.can().insertTable({ rows: 3, cols: 3, withHeaderRow: true })" @mousedown.prevent @click="editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()">插入表格</button>
+      <div v-if="editor.isActive('table')" class="table-tools" role="group" aria-label="表格操作">
+        <button v-for="action in tableActions" :key="action.command" type="button" class="tool-button table-button" :title="action.label" :aria-label="action.label" :disabled="editorDisabled || !editor.can()[action.command]()" @mousedown.prevent @click="editTable(action.command)">{{ action.label }}</button>
+      </div>
     </div>
     <EditorContent :editor="editor" />
     <div class="editor-help">支持粘贴排版内容，输入 ##、- 或 &gt; 后按空格可快速设置格式。</div>
@@ -203,6 +226,8 @@ function removeLink() {
 .block-select :deep(.el-select__wrapper.is-focused), .align-select :deep(.el-select__wrapper.is-focused) { outline: 2px solid var(--el-color-primary); outline-offset: -2px; }
 .toolbar-divider { height: 17px; width: 1px; background: var(--el-border-color); margin: 0 3px; }
 .tool-group { display: flex; align-items: center; gap: 2px; }
+.table-tools { display: flex; flex-wrap: wrap; gap: 2px; flex-basis: 100%; }
+.tool-button.table-button { width: auto; min-width: max-content; padding: 0 8px; font-size: 12px; white-space: nowrap; }
 .tool-button { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 34px; padding: 0; background: transparent; border: 0; border-radius: 5px; color: var(--el-text-color-regular); cursor: pointer; font: inherit; font-size: 15px; transition: background .15s, color .15s; }
 .tool-button:hover:not(:disabled) { background: var(--el-fill-color); color: var(--el-text-color-primary); }
 .tool-button[aria-pressed='true'] { color: var(--el-color-primary); background: var(--el-color-primary-light-9); }
@@ -230,6 +255,7 @@ function removeLink() {
   .editor-help { padding: 0 18px 16px; }
   .toolbar-divider { margin: 0 1px; }
   .tool-button { width: 34px; height: 36px; }
+  .table-button { width: auto; }
   .tool-group { gap: 3px; }
 }
 </style>

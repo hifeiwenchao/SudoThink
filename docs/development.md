@@ -76,12 +76,15 @@ await schedule_task_once(
 | 登录 | POST | `/api/auth/login` |
 | 文章列表 | GET | `/api/articles` |
 | 文章详情 | GET | `/api/articles/<id>` |
+| 相关阅读 | GET | `/api/articles/<id>/related`（最多三篇公开文章，不增加阅读数） |
 | 创建文章 | POST | `/api/articles` |
 | 分类列表 | GET | `/api/categories` |
 | 新增分类 | POST | `/api/categories`（管理员） |
 | 更新分类 | PUT | `/api/categories/<id>`（管理员） |
 | 删除分类 | DELETE | `/api/categories/<id>`（管理员） |
 | 关于我 | GET | `/api/about` |
+| 公开联系方式 | GET | `/api/about/contacts`（仅五个联系字段，不读取正文） |
+| 首页侧栏 | GET | `/api/about/sidebar`（精选文章与项目动态，不返回原始后台配置） |
 | 编辑关于我 | GET / PUT | `/api/admin/about`（管理员） |
 | 公开打赏设置 | GET | `/api/donations` |
 | 读取 / 保存打赏设置 | GET / PUT | `/api/admin/donations`（管理员） |

@@ -1,6 +1,7 @@
 import DOMPurify from 'dompurify'
+import { tableSpan } from './tableAttributes'
 
-const RICH_TEXT_TAG = /<\/?(?:p|div|h[1-6]|ul|ol|li|blockquote|pre|code|img|video|br|strong|b|em|i|u|s|a|hr|script|iframe|style)\b[^>]*>/i
+const RICH_TEXT_TAG = /<\/?(?:p|div|h[1-6]|ul|ol|li|blockquote|pre|code|img|video|br|strong|b|em|i|u|s|a|hr|script|iframe|style|table|thead|tbody|tfoot|tr|th|td)\b[^>]*>/i
 const SAFE_IMAGE_URL = /^(https?:\/\/|\/(?!\/))/i
 const SAFE_LINK_URL = /^(https?:\/\/|mailto:|\/(?!\/)|#)/i
 
@@ -23,12 +24,25 @@ export function toArticleHtml(content: string): string {
 export function sanitizeArticleHtml(content: string): string {
   const clean = DOMPurify.sanitize(content, {
     ALLOWED_TAGS: ['p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li',
-      'blockquote', 'pre', 'code', 'img', 'video', 'br', 'strong', 'b', 'em', 'i', 'u', 's', 'a', 'hr', 'span'],
-    ALLOWED_ATTR: ['href', 'target', 'rel', 'src', 'alt', 'title', 'style', 'class', 'start', 'controls', 'preload', 'playsinline', 'width', 'height', 'loading', 'decoding'],
+      'blockquote', 'pre', 'code', 'img', 'video', 'br', 'strong', 'b', 'em', 'i', 'u', 's', 'a', 'hr', 'span',
+      'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td'],
+    ALLOWED_ATTR: ['href', 'target', 'rel', 'src', 'alt', 'title', 'style', 'class', 'start', 'controls', 'preload', 'playsinline', 'width', 'height', 'loading', 'decoding', 'colspan', 'rowspan'],
     ALLOW_DATA_ATTR: false,
   })
   const template = document.createElement('template')
   template.innerHTML = clean
+  template.content.querySelectorAll('table, thead, tbody, tfoot, tr, th, td').forEach((element) => {
+    const spans = { colspan: tableSpan(element.getAttribute('colspan')), rowspan: tableSpan(element.getAttribute('rowspan')) }
+    for (const attribute of [...element.attributes]) element.removeAttribute(attribute.name)
+    if (element.matches('th, td')) {
+      for (const [name, value] of Object.entries(spans)) {
+        if (value > 1) element.setAttribute(name, String(value))
+      }
+    }
+  })
+  template.content.querySelectorAll('[colspan], [rowspan]').forEach((element) => {
+    if (!element.matches('th, td')) { element.removeAttribute('colspan'); element.removeAttribute('rowspan') }
+  })
   template.content.querySelectorAll<HTMLElement>('[style]').forEach((element) => {
     const align = element.style.textAlign
     element.removeAttribute('style')
@@ -62,8 +76,10 @@ export function getArticleText(content: string): string {
   const template = document.createElement('template')
   template.innerHTML = toArticleHtml(content)
   template.content.querySelectorAll('br').forEach((br) => br.replaceWith('\n'))
+  template.content.querySelectorAll('th, td').forEach((cell) => cell.append('\t'))
   template.content.querySelectorAll('p, div, h1, h2, h3, h4, h5, h6, li, blockquote, pre')
     .forEach((block) => block.append('\n'))
+  template.content.querySelectorAll('tr').forEach((row) => row.append('\n'))
   return (template.content.textContent || '').replace(/[\u200b-\u200d\ufeff]/g, '')
     .replace(/\n{3,}/g, '\n\n').trim()
 }

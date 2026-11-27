@@ -5,6 +5,8 @@ from pydantic import ValidationError as PydanticValidationError
 from sanic import Blueprint, Request
 from slugify import slugify
 from tortoise.transactions import in_transaction
+from tortoise.expressions import Case, Q, When
+from tortoise.functions import Count
 
 from app.core.article_views import record_article_view
 from app.core.exceptions import ForbiddenError, NotFoundError, ValidationError
@@ -16,6 +18,36 @@ from app.models.tag import Tag
 from app.schemas.article import ArticleCreateIn, ArticleUpdateIn
 
 bp = Blueprint("article", url_prefix="/articles")
+
+RECOMMENDATION_FIELDS = ("id", "title", "summary", "category_id")
+
+
+def recommendation_dict(article: Article) -> dict:
+    category = article.category
+    return {"id": article.id, "title": article.title, "summary": article.summary,
+            "category": {"id": category.id, "name": category.name, "slug": category.slug} if category else None}
+
+
+@bp.get("/<aid:int>/related")
+async def get_related_articles(request: Request, aid: int):
+    source = await Article.get_or_none(id=aid, is_published=True, deleted_at__isnull=True).only("id", "category_id")
+    if source is None:
+        raise NotFoundError("article not found")
+    tag_ids = await source.tags.all().values_list("id", flat=True)
+    if source.category_id is None and not tag_ids:
+        return success([])
+    related = Q(tags__id__in=tag_ids)
+    if source.category_id is not None:
+        related |= Q(category_id=source.category_id)
+    # SQL ranks/limits candidates without fetching article bodies or recording views.
+    query = Article.filter(related, is_published=True, deleted_at__isnull=True).exclude(id=aid).annotate(
+        same_category=Case(When(category_id=source.category_id, then=int(source.category_id is not None)), default=0),
+        shared_tags=Count("tags", distinct=True, _filter=Q(tags__id__in=tag_ids)),
+    )
+    results = await query.order_by("-same_category", "-shared_tags", "-published_at", "-created_at", "-id").limit(3).only(
+        *RECOMMENDATION_FIELDS
+    ).prefetch_related("category")
+    return success([recommendation_dict(item) for item in results])
 
 
 async def _selected_tags(tag_ids: list[int]) -> list[Tag]:

@@ -21,7 +21,7 @@ class MySQLMetadata:
         )} if upgraded else {}
         self.todo_records = []
         self.about_columns = {name: {"COLUMN_NAME": name} for name in (
-            "github_url", "email", "x_url", "facebook_url", "instagram_url",
+            "github_url", "email", "x_url", "facebook_url", "instagram_url", "featured_article_ids", "current_projects",
         )} if upgraded else {}
         self.about_records = [{"id": 1, "title": "Author", "content": "Existing biography"}]
         if upgraded:
@@ -66,6 +66,11 @@ class MySQLMetadata:
                     self.about_columns[name] = {"COLUMN_NAME": name}
                     for record in self.about_records:
                         record[name] = ""
+            for name in ("featured_article_ids", "current_projects"):
+                if f"ADD COLUMN `{name}`" in sql:
+                    self.about_columns[name] = {"COLUMN_NAME": name}
+                    for record in self.about_records:
+                        record[name] = None
             return
         if "`articles`" in sql:
             if "ADD COLUMN" in sql:
@@ -103,6 +108,21 @@ class MySQLMetadata:
 
 
 class SiteContentUpgradeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_discovery_upgrade_preserves_content_and_is_idempotent(self):
+        connection = MySQLMetadata(upgraded=True)
+        del connection.about_columns["featured_article_ids"]
+        del connection.about_columns["current_projects"]
+        original = [dict(row) for row in connection.about_records]
+        await self.upgrade_with(connection)
+        self.assertEqual(len(connection.scripts), 1)
+        for name in ("featured_article_ids", "current_projects"):
+            self.assertIn(f"ADD COLUMN `{name}` JSON NULL", connection.scripts[0])
+        self.assertEqual(connection.about_records[0]["content"], original[0]["content"])
+        connection.about_records[0]["current_projects"] = [{"name": "Saved"}]
+        await self.upgrade_with(connection)
+        self.assertEqual(len(connection.scripts), 1)
+        self.assertEqual(connection.about_records[0]["current_projects"], [{"name": "Saved"}])
+
     async def upgrade_with(self, connection):
         schema = importlib.import_module("app.core.schema")
         with (
@@ -147,7 +167,7 @@ class SiteContentUpgradeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(connection.about_records, [{
             "id": 1, "title": "Author", "content": "Existing biography",
             "github_url": "https://github.com/saved", "email": "", "x_url": "",
-            "facebook_url": "", "instagram_url": "",
+            "facebook_url": "", "instagram_url": "", "featured_article_ids": None, "current_projects": None,
         }])
         await self.upgrade_with(connection)
         self.assertEqual(len(connection.scripts), 1)

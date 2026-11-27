@@ -6,8 +6,10 @@ import { ArrowRight, Refresh, Search, View } from '@element-plus/icons-vue'
 import { articleApi, type ArticleListItem } from '@/api/article'
 import { taxonomyApi, type TaxonomyItem } from '@/api/taxonomy'
 import { useTaxonomyStore } from '@/stores/taxonomy'
-import { aboutApi, type About } from '@/api/about'
+import { aboutApi } from '@/api/about'
+import type { ContactFields } from '@/utils/aboutContacts'
 import ContactLinks from '@/components/ContactLinks.vue'
+import HomeDiscovery from '@/components/HomeDiscovery.vue'
 import { articleQuery, parseArticleQuery, type ArticleQuery } from '@/utils/publicNavigation'
 
 const route = useRoute()
@@ -32,12 +34,12 @@ const taxonomyLoading = ref(false)
 const taxonomyError = ref(false)
 const failedCovers = ref(new Set<string>())
 let requestId = 0
-const contactSettings = ref<About | null>(null)
+const contactSettings = ref<ContactFields | null>(null)
 let active = true
 
 async function loadContacts() {
   try {
-    const data = await aboutApi.get()
+    const data = await aboutApi.contacts()
     if (active) contactSettings.value = data
   } catch {
     // Optional profile links must not interrupt the article archive.
@@ -261,6 +263,8 @@ onBeforeUnmount(() => { active = false; requestId++ })
           </div>
         </section>
 
+        <HomeDiscovery />
+
         <div v-if="taxonomyError" class="taxonomy-error" role="status">
           <p>部分分类或标签未能加载。</p>
           <button :disabled="taxonomyLoading" @click="loadTaxonomy"><Refresh aria-hidden="true" />{{ taxonomyLoading ? '正在加载…' : '重新加载索引' }}</button>
@@ -272,7 +276,7 @@ onBeforeUnmount(() => { active = false; requestId++ })
 </template>
 
 <style scoped>
-.blog-home { width: min(1120px, calc(100% - 64px)); margin: 0 auto; color: var(--blog-text); }
+.blog-home { width: min(1280px, calc(100% - 64px)); margin: 0 auto; color: var(--blog-text); }
 button, input { font: inherit; }
 button { cursor: pointer; }
 button, a, input { -webkit-tap-highlight-color: transparent; }
@@ -305,7 +309,7 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 .manifesto span { display: inline-block; color: var(--blog-terminal-muted); margin-right: 12px; font-size: 10px; opacity: .7; }
 .terminal-end { display: flex; align-items: center; }
 .terminal-end i { display: inline-block; width: 6px; height: 12px; background: var(--blog-terminal-accent); opacity: .7; }
-.content-layout { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 48px; padding-top: 40px; padding-bottom: 70px; border-top: 1px solid var(--blog-border); }
+.content-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 56px; padding-top: 40px; padding-bottom: 70px; border-top: 1px solid var(--blog-border); }
 .archive, .sidebar, #about { min-width: 0; scroll-margin-top: 95px; }
 .archive-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 27px; }
 .archive-heading h2 { margin: 6px 0 0; font-size: 27px; letter-spacing: -1px; line-height: 1.5; font-weight: 700; }
@@ -366,7 +370,7 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 .pagination :deep(.el-pager li) { border-radius: 4px; font-size: 11px; font-weight: 400; }
 .pagination :deep(.el-pager li.is-active) { color: var(--blog-accent); background: var(--blog-accent-soft); font-weight: 600; }
 .pagination :deep(button:disabled) { opacity: .4; }
-.sidebar { border-left: 1px solid var(--blog-border); padding-left: 29px; }
+.sidebar { border-left: 1px solid var(--blog-border); padding-left: 28px; }
 .sidebar .eyebrow { font-size: 9px; letter-spacing: .85px; }
 .about-symbol { width: 39px; height: 39px; display: flex; align-items: center; justify-content: center; font-family: var(--blog-mono); font-size: 20px; color: var(--blog-accent); background: var(--blog-accent-soft); border: 1px solid color-mix(in srgb, var(--blog-accent) 15%, transparent); border-radius: 8px; margin: 24px 0 16px; }
 .about-card h2 { margin: 0 0 12px; font-size: 16px; font-weight: 650; letter-spacing: -.3px; }

@@ -11,6 +11,8 @@ class AboutPage(models.Model):
     x_url = fields.CharField(max_length=512, default="", description="X 主页")
     facebook_url = fields.CharField(max_length=512, default="", description="Facebook 主页")
     instagram_url = fields.CharField(max_length=512, default="", description="Instagram 主页")
+    featured_article_ids = fields.JSONField(default=list, description="精选文章 ID，按展示顺序")
+    current_projects = fields.JSONField(default=list, description="正在折腾的项目动态")
     updated_at = fields.DatetimeField(auto_now=True, description="更新时间")
 
     class Meta:

@@ -32,6 +32,13 @@ export interface Article {
 
 export type ArticleListItem = Omit<Article, 'content'>
 
+export interface ArticleRecommendation {
+  id: number
+  title: string
+  summary: string
+  category: ArticleBrief | null
+}
+
 export interface ArticleListResp {
   items: ArticleListItem[]
   total: number
@@ -45,6 +52,9 @@ export const articleApi = {
   },
   detail(id: number) {
     return http.get<unknown, Article>(`/articles/${id}`)
+  },
+  related(id: number) {
+    return http.get<unknown, ArticleRecommendation[]>(`/articles/${id}/related`)
   },
   create(data: {
     title: string

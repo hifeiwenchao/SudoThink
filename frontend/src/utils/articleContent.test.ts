@@ -7,6 +7,32 @@ Object.assign(globalThis, { window, document: window.document, DOMParser: window
 const { getArticleText, hasArticleContent, toArticleHtml, sanitizeArticleHtml } = await import('./articleContent')
 
 describe('article content', () => {
+  it('recognizes table-only HTML and preserves semantic table sections and bounded merged cells', () => {
+    const html = toArticleHtml('<table><thead><tr><th colspan="2">表头</th></tr></thead><tbody><tr><td rowspan="2">甲</td><td>乙</td></tr><tr><td>丙</td></tr></tbody></table>')
+    const body = new DOMParser().parseFromString(html, 'text/html').body
+    assert.ok(body.querySelector('table > thead > tr > th'))
+    assert.equal(body.querySelector('th')?.getAttribute('colspan'), '2')
+    assert.equal(body.querySelector('td')?.getAttribute('rowspan'), '2')
+    assert.equal(body.querySelectorAll('tr').length, 3)
+    assert.equal(hasArticleContent(html), true)
+    assert.match(getArticleText(html), /甲\s+乙/)
+    assert.equal(hasArticleContent('<table><tr><td><p></p></td></tr></table>'), false)
+  })
+
+  it('strips table styling, event handlers, external resources and unbounded spans', () => {
+    const html = sanitizeArticleHtml('<table class="overlay" style="position:fixed" background="https://evil.example/track"><tbody id="x"><tr onclick="alert(1)"><td colspan="999999" rowspan="0" style="text-align:center;background:url(https://evil.example)"><a href="javascript:alert(1)">内容</a><img src="/safe.png" onerror="alert(1)"></td><td colspan="50" rowspan="51">边界</td></tr></tbody></table>')
+    const body = new DOMParser().parseFromString(html, 'text/html').body
+    assert.equal(body.querySelector('[style], [class], [id], [onclick], [onerror], [background]'), null)
+    assert.equal(body.querySelector('a')?.hasAttribute('href'), false)
+    assert.equal(body.querySelector('img')?.getAttribute('src'), '/safe.png')
+    const cells = body.querySelectorAll('td')
+    assert.equal(cells[0].hasAttribute('colspan'), false)
+    assert.equal(cells[0].hasAttribute('rowspan'), false)
+    assert.equal(cells[1].getAttribute('colspan'), '50')
+    assert.equal(cells[1].hasAttribute('rowspan'), false)
+    assert.equal(sanitizeArticleHtml('<p colspan="2" rowspan="3">正文</p>'), '<p>正文</p>')
+  })
+
   it('loads body images lazily and retains only bounded intrinsic dimensions', () => {
     const html = sanitizeArticleHtml('<p><img src="https://example.com/a.png" width="1200" height="800" loading="eager"><img src="/x.png" width="999999" height="-2"><img src="/y.png" width="50%" height="bad"></p>')
     const images = new DOMParser().parseFromString(html, 'text/html').querySelectorAll('img')
