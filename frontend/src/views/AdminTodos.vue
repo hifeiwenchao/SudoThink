@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, inject, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { matchedRouteKey, onBeforeRouteLeave } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import TodoHistory from '@/components/TodoHistory.vue'
@@ -42,6 +43,35 @@ const skipPeriods: { value: TodoSkipPeriod; label: string }[] = [
 const skipPreviewValid = computed(() => skipDialogVisible.value && !!skipPreview.value && skipPreview.value.period === skipPeriod.value && !skipPreviewLoading.value && !skipPreviewError.value)
 const localTimezone = deviceTimezone()
 const form = reactive<TodoForm>({ title: '', content: '', due_at: null, reminder_enabled: false, reminder_email: '', reminder_repeat: 'cron', reminder_timezone: localTimezone, reminder_cron: '0 9 * * *' })
+let savedForm = ''
+let closeConfirmation: Promise<boolean> | null = null
+const editorDirty = computed(() => dialogVisible.value && JSON.stringify(form) !== savedForm)
+function beforePageUnload(event: BeforeUnloadEvent) {
+  if (!editorDirty.value && !saving.value) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+
+async function confirmEditorLeave(): Promise<boolean> {
+  if (saving.value) return false
+  if (!editorDirty.value) return true
+  if (closeConfirmation) return closeConfirmation
+  closeConfirmation = ElMessageBox.confirm('待办有尚未保存的修改，确定放弃吗？', '未保存的修改', {
+    confirmButtonText: '放弃修改', cancelButtonText: '继续编辑', type: 'warning',
+    closeOnClickModal: false, distinguishCancelAndClose: true,
+  }).then(() => true, () => false)
+  try { return await closeConfirmation } finally { closeConfirmation = null }
+}
+
+async function requestEditorClose() {
+  if (await confirmEditorLeave()) dialogVisible.value = false
+}
+
+async function beforeEditorClose(done: () => void) {
+  if (await confirmEditorLeave()) done()
+}
+
+if (inject(matchedRouteKey, null)) onBeforeRouteLeave(() => confirmEditorLeave())
 const builder = reactive<TodoCronBuilder>({ preset: 'daily', time: '09:00', weekdays: [1, 2, 3, 4, 5], day: 1, month: 1, interval: 15 })
 const cronPreview = ref<TodoCronPreview | null>(null)
 const previewLoading = ref(false)
@@ -282,6 +312,7 @@ function openCreate() {
   Object.assign(form, { title: '', content: '', due_at: null, reminder_enabled: false, reminder_email: '', reminder_repeat: 'cron', reminder_timezone: localTimezone, reminder_cron: '0 9 * * *' })
   Object.assign(builder, { preset: 'daily', time: '09:00', weekdays: [1, 2, 3, 4, 5], day: 1, month: 1, interval: 15 })
   clearErrors()
+  savedForm = JSON.stringify(form)
   dialogVisible.value = true
 }
 
@@ -299,6 +330,7 @@ function openEdit(item: Todo) {
   })
   builder.preset = 'custom'
   clearErrors()
+  savedForm = JSON.stringify(form)
   dialogVisible.value = true
 }
 
@@ -388,9 +420,50 @@ function formatTime(value: string | null) {
   }) : '时间无效'
 }
 
+function nextReminder(item: Todo): string | null {
+  if (item.is_completed || !item.reminder_enabled) return null
+  return item.reminder_next_run_at || (item.reminder_repeat === 'once' ? item.due_at : null)
+}
+
+function reminderTimestamp(item: Todo) {
+  const value = nextReminder(item)
+  return value ? new Date(value).getTime() : NaN
+}
+
 function isOverdue(item: Todo) {
-  const due = item.reminder_repeat === 'once' ? item.due_at : item.reminder_enabled ? item.reminder_next_run_at : null
-  return !item.is_completed && !!due && new Date(due).getTime() <= now.value
+  return Number.isFinite(reminderTimestamp(item)) && reminderTimestamp(item) <= now.value
+}
+
+function executionDay(timestamp: number, timezone: string) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(timestamp))
+}
+
+function todoGroup(item: Todo): string {
+  if (item.is_completed) return 'completed'
+  const timestamp = reminderTimestamp(item)
+  if (!Number.isFinite(timestamp)) return 'unscheduled'
+  try {
+    const day = executionDay(timestamp, item.reminder_timezone)
+    if (timestamp <= now.value) return 'overdue'
+    return day === executionDay(now.value, item.reminder_timezone) ? 'today' : 'upcoming'
+  } catch { return 'unscheduled' }
+}
+
+const todoGroups = computed(() => [
+  { key: 'overdue', label: '逾期', hint: '先处理这些未完成的事项' },
+  { key: 'today', label: '今天', hint: '按每项提醒的执行时区计算' },
+  { key: 'upcoming', label: '接下来', hint: '提前安排，按计划推进' },
+  { key: 'unscheduled', label: '无提醒', hint: '按自己的节奏完成' },
+  { key: 'completed', label: '已完成', hint: '每一步都有收获' },
+].map(group => ({ ...group, items: list.value.filter(item => todoGroup(item) === group.key) })).filter(group => group.items.length))
+
+function nextReminderLabel(item: Todo) {
+  const value = nextReminder(item)
+  if (!value) return item.is_completed ? '已完成，提醒已停止' : '未设置提醒'
+  if (!Number.isFinite(new Date(value).getTime())) return '时间无效，请检查提醒设置'
+  try {
+    return new Intl.DateTimeFormat('zh-CN', { timeZone: item.reminder_timezone, month: 'long', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value))
+  } catch { return '时区无效，请检查提醒设置' }
 }
 
 function repeatLabel(item: Todo) {
@@ -430,6 +503,7 @@ function formatPreviewTime(value: string) {
 }
 
 onMounted(() => {
+  window.addEventListener('beforeunload', beforePageUnload)
   void load()
   refreshTimer = setInterval(() => {
     now.value = Date.now()
@@ -438,6 +512,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', beforePageUnload)
   active = false
   controller?.abort()
   resetPreview()
@@ -479,49 +554,55 @@ onBeforeUnmount(() => {
     <el-result v-if="loadError" icon="error" title="待办事项加载失败" sub-title="请检查网络后重试，已有待办不会受到影响。">
       <template #extra><el-button type="primary" :loading="loading" :disabled="busy" @click="load">重新加载</el-button></template>
     </el-result>
+    <div v-else-if="loading && !loaded" class="admin-initial-loading" role="status" aria-label="待办加载中"><p>正在整理待办事项…</p><el-skeleton :rows="6" animated /></div>
     <template v-else>
-      <div class="table-panel">
-        <el-table v-loading="loading" :data="list" stripe row-key="id" empty-text="暂无待办事项，点击“新建待办”记录一件事" class="todo-table">
-          <el-table-column label="事项" min-width="260">
-            <template #default="{ row }">
-              <div class="todo-title" :class="{ completed: row.is_completed }">{{ row.title }}</div>
-              <p v-if="row.content" class="todo-content">{{ row.content }}</p>
-            </template>
-          </el-table-column>
-          <el-table-column label="下次提醒" min-width="190">
-            <template #default="{ row }">
-              <span :class="{ 'overdue-time': isOverdue(row) }">{{ formatTime(row.reminder_enabled ? row.reminder_next_run_at || (row.reminder_repeat === 'once' ? row.due_at : null) : null) }}</span>
-              <span v-if="isOverdue(row)" class="overdue-label">已逾期</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="状态" width="92">
-            <template #default="{ row }"><el-tag :type="row.is_completed ? 'success' : 'info'" effect="plain">{{ row.is_completed ? '已完成' : '未完成' }}</el-tag></template>
-          </el-table-column>
-          <el-table-column label="邮件提醒" min-width="220">
-            <template #default="{ row }">
-              <el-tag :type="reminderType(row)" effect="plain">{{ reminderLabel(row) }}</el-tag>
-              <span class="reminder-detail">{{ repeatLabel(row) }}<template v-if="row.reminder_repeat !== 'once'"> · {{ row.reminder_timezone }}</template></span>
-              <code v-if="row.reminder_repeat === 'cron'" class="reminder-detail cron-expression">{{ row.reminder_cron }}</code>
-              <span v-if="row.reminder_email" class="reminder-detail reminder-email" :title="row.reminder_email">{{ row.reminder_email }}</span>
-              <p v-if="row.reminder_sent_at" class="reminder-detail">最近发送：{{ formatTime(row.reminder_sent_at) }}</p>
-              <el-tooltip v-if="row.reminder_error" :content="row.reminder_error" placement="top" :show-after="300">
-                <span class="reminder-detail error-detail">已尝试 {{ row.reminder_attempts }} 次</span>
-              </el-tooltip>
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="270" fixed="right">
-            <template #default="{ row }">
-              <div class="row-actions">
+      <div class="todo-agenda" v-loading="loading" aria-label="当前页待办，按提醒时间分组">
+        <el-empty v-if="!list.length && !loading" description="暂无待办事项，记录下一件要做的事吧" />
+        <p v-if="total > size" class="group-scope">以下为当前页事项，按各自执行时区分组</p>
+        <section v-for="group in todoGroups" :key="group.key" :data-group="group.key" class="todo-group" :aria-labelledby="'todo-group-' + group.key">
+          <header class="group-heading">
+            <h3 :id="'todo-group-' + group.key">{{ group.label }}<span>{{ group.items.length }}</span></h3>
+            <p>{{ group.hint }}</p>
+          </header>
+          <div class="todo-cards">
+            <article v-for="row in group.items" :key="row.id" class="todo-card" :class="{ 'is-overdue': isOverdue(row), 'is-completed': row.is_completed }">
+              <div class="todo-card-main">
+                <div class="card-heading">
+                  <strong class="todo-title" :class="{ completed: row.is_completed }">{{ row.title }}</strong>
+                  <el-tag v-if="row.is_completed" size="small" type="success" effect="plain">已完成</el-tag>
+                  <el-tag v-else-if="row.reminder_enabled" :type="reminderType(row)" size="small" effect="plain">{{ reminderLabel(row) }}</el-tag>
+                </div>
+                <p v-if="row.content" class="todo-content">{{ row.content }}</p>
+                <div class="next-reminder" :class="{ 'overdue-time': isOverdue(row) }">
+                  <span class="next-caption">{{ nextReminder(row) ? '下次提醒' : '提醒' }}</span>
+                  <time v-if="Number.isFinite(reminderTimestamp(row))" :datetime="nextReminder(row) || undefined">{{ nextReminderLabel(row) }}</time>
+                  <span v-else>{{ nextReminderLabel(row) }}</span>
+                  <span v-if="isOverdue(row)" class="overdue-label">已逾期</span>
+                </div>
+              </div>
+              <div class="row-actions card-actions">
                 <el-button size="small" :type="row.is_completed ? 'default' : 'success'" plain :disabled="!canManage" :loading="operationId === row.id" @click="toggleCompletion(row)">{{ row.is_completed ? '重新打开' : '完成' }}</el-button>
                 <el-button size="small" :disabled="!canManage" @click="openEdit(row)">编辑</el-button>
-                <el-button size="small" @click="historyTarget = row; historyVisible = true">提醒历史</el-button>
-                <el-button size="small" type="danger" plain :disabled="!canManage" @click="remove(row)">删除</el-button>
-                <el-button v-if="!row.is_completed && row.reminder_enabled && row.reminder_status === 'failed'" size="small" type="warning" plain :disabled="!canManage" @click="retryReminder(row)">重试提醒</el-button>
-                <el-button v-if="canSkipPeriod(row)" size="small" plain :disabled="!canManage" @click="openSkipPeriod(row)">不再提醒</el-button>
               </div>
-            </template>
-          </el-table-column>
-        </el-table>
+              <details class="todo-secondary">
+                <summary>提醒详情与更多操作</summary>
+                <div class="todo-details-grid">
+                  <div v-if="row.content"><span class="detail-caption">完整说明</span><p class="full-content">{{ row.content }}</p></div>
+                  <div><span class="detail-caption">提醒计划</span><p>{{ repeatLabel(row) }} · {{ row.reminder_timezone }}</p><code v-if="row.reminder_repeat === 'cron'">{{ row.reminder_cron }}</code></div>
+                  <div v-if="row.reminder_email"><span class="detail-caption">收件邮箱</span><p>{{ row.reminder_email }}</p></div>
+                  <div v-if="row.reminder_sent_at"><span class="detail-caption">最近发送</span><p>{{ formatTime(row.reminder_sent_at) }}</p></div>
+                  <div v-if="row.reminder_error"><span class="detail-caption">提醒异常</span><p>{{ row.reminder_error }}（已尝试 {{ row.reminder_attempts }} 次）</p></div>
+                </div>
+                <div class="row-actions">
+                  <el-button size="small" @click="historyTarget = row; historyVisible = true">提醒历史</el-button>
+                  <el-button v-if="!row.is_completed && row.reminder_enabled && row.reminder_status === 'failed'" size="small" type="warning" plain :disabled="!canManage" @click="retryReminder(row)">重试提醒</el-button>
+                  <el-button v-if="canSkipPeriod(row)" size="small" :disabled="!canManage" @click="openSkipPeriod(row)">不再提醒</el-button>
+                  <el-button size="small" type="danger" text :disabled="!canManage" @click="remove(row)">删除</el-button>
+                </div>
+              </details>
+            </article>
+          </div>
+        </section>
       </div>
       <div class="pagination">
         <el-pagination :current-page="page" :page-size="size" :page-sizes="[10, 20, 50]" :total="total" :disabled="busy" layout="total, sizes, prev, pager, next" @current-change="pageChanged" @size-change="sizeChanged" />
@@ -559,7 +640,7 @@ onBeforeUnmount(() => {
       </template>
     </el-dialog>
 
-    <el-dialog v-model="dialogVisible" :title="editingId === null ? '新建待办' : '编辑待办'" width="min(680px, calc(100vw - 28px))" :close-on-click-modal="!saving" :close-on-press-escape="!saving" :show-close="!saving" append-to-body>
+    <el-dialog v-model="dialogVisible" :title="editingId === null ? '新建待办' : '编辑待办'" width="min(680px, calc(100vw - 28px))" :before-close="beforeEditorClose" :close-on-click-modal="!saving" :close-on-press-escape="!saving" :show-close="!saving" append-to-body>
       <el-form :model="form" label-position="top" :disabled="saving" @submit.prevent="save">
         <el-form-item label="标题" :error="errors.title" required>
           <el-input v-model="form.title" maxlength="200" show-word-limit placeholder="接下来要做什么？" @input="errors.title = ''" />
@@ -645,7 +726,7 @@ onBeforeUnmount(() => {
         <p v-if="saveError" class="save-error" role="alert">{{ saveError }}</p>
       </el-form>
       <template #footer>
-        <el-button :disabled="saving" @click="dialogVisible = false">取消</el-button>
+        <el-button :disabled="saving" @click="requestEditorClose">取消</el-button>
         <el-button type="primary" :loading="saving" :disabled="saving || !previewValid" @click="save">{{ saveError ? '重试保存' : '保存待办' }}</el-button>
       </template>
     </el-dialog>
@@ -653,6 +734,38 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.todo-agenda { min-height: 140px; }
+.group-scope { margin: 0 0 20px; color: var(--el-text-color-secondary); font-size: 12px; }
+.todo-group + .todo-group { margin-top: 32px; }
+.group-heading { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin: 0 0 12px; }
+.group-heading h3 { margin: 0; display: flex; gap: 8px; align-items: center; font-size: 15px; }
+.group-heading h3 span { border-radius: 6px; padding: 2px 7px; background: var(--el-fill-color); color: var(--el-text-color-secondary); font-size: 12px; font-weight: 500; }
+.group-heading p { margin: 0; color: var(--el-text-color-secondary); font-size: 12px; }
+.todo-cards { display: grid; gap: 12px; }
+.todo-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 24px; min-width: 0; padding: 20px; border: 1px solid var(--el-border-color-lighter); border-radius: 12px; background: var(--app-surface); overflow-wrap: anywhere; }
+.todo-card.is-overdue { border-left: 3px solid var(--el-color-danger); }
+.todo-card.is-completed { background: var(--el-fill-color-blank); }
+.card-heading { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.card-heading .todo-title { font-size: 15px; font-weight: 600; }
+.card-actions { align-self: start; margin: 0; }
+.next-reminder { display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline; margin-top: 14px; font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.next-caption { color: var(--el-text-color-secondary); font-size: 12px; font-weight: 400; }
+.next-reminder .overdue-label { font-size: 12px; font-weight: 400; }
+.todo-card details { grid-column: 1 / -1; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--el-border-color-lighter); color: var(--el-text-color-secondary); font-size: 13px; }
+.todo-card summary { cursor: pointer; width: fit-content; line-height: 1.7; }
+.todo-card details[open] summary { margin-bottom: 16px; }
+.todo-details-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 24px; margin-bottom: 16px; }
+.todo-details-grid p { margin: 5px 0 0; line-height: 1.7; color: var(--el-text-color-regular); }
+.todo-details-grid code { display: block; margin-top: 6px; color: var(--el-text-color-regular); }
+.detail-caption { font-size: 12px; color: var(--el-text-color-secondary); }
+.full-content { white-space: pre-wrap; }
+@media (max-width: 700px) {
+  .todo-card { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 16px; }
+  .card-actions { margin-top: 16px; }
+  .todo-details-grid { grid-template-columns: minmax(0, 1fr); }
+  .group-heading { gap: 8px; }
+  .group-heading p { width: 100%; }
+}
 .todos-admin { min-width: 0; }
 .page-heading { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 18px; }
 .page-heading h2 { margin: 0; font-size: 24px; }
@@ -664,16 +777,11 @@ onBeforeUnmount(() => {
 .status-filter { width: 150px; }
 .search-form { display: flex; gap: 8px; width: min(420px, 100%); }
 .search-form > :deep(.el-input) { min-width: 0; }
-.table-panel { min-width: 0; overflow: hidden; border: 1px solid var(--el-border-color-lighter); border-radius: 8px; background: var(--app-surface); }
-.todo-table { width: 100%; }
 .todo-title { color: var(--el-text-color-primary); line-height: 1.65; overflow-wrap: anywhere; font-weight: 500; }
 .todo-title.completed { color: var(--el-text-color-secondary); text-decoration: line-through; }
 .todo-content { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin: 5px 0 0; color: var(--el-text-color-secondary); line-height: 1.6; white-space: pre-line; overflow-wrap: anywhere; font-size: 12px; }
 .overdue-time, .overdue-label { color: var(--el-color-danger); }
 .overdue-label { display: block; font-size: 12px; }
-.reminder-detail { display: block; margin: 5px 0 0; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.5; }
-.reminder-email { overflow-wrap: anywhere; }
-.error-detail { cursor: help; color: var(--el-color-warning); }
 .row-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .row-actions :deep(.el-button + .el-button) { margin-left: 0; }
 .pagination { display: flex; justify-content: flex-end; overflow-x: auto; margin-top: 18px; padding-bottom: 6px; }

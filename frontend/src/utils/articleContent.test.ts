@@ -7,6 +7,14 @@ Object.assign(globalThis, { window, document: window.document, DOMParser: window
 const { getArticleText, hasArticleContent, toArticleHtml, sanitizeArticleHtml } = await import('./articleContent')
 
 describe('article content', () => {
+  it('loads body images lazily and retains only bounded intrinsic dimensions', () => {
+    const html = sanitizeArticleHtml('<p><img src="https://example.com/a.png" width="1200" height="800" loading="eager"><img src="/x.png" width="999999" height="-2"><img src="/y.png" width="50%" height="bad"></p>')
+    const images = new DOMParser().parseFromString(html, 'text/html').querySelectorAll('img')
+    assert.equal(images[0].getAttribute('width'), '1200')
+    assert.equal(images[0].getAttribute('height'), '800')
+    for (const image of images) { assert.equal(image.getAttribute('loading'), 'lazy'); assert.equal(image.getAttribute('decoding'), 'async') }
+    for (const image of [...images].slice(1)) { assert.equal(image.hasAttribute('width'), false); assert.equal(image.hasAttribute('height'), false) }
+  })
   it('pastes clipboard HTML as readable content instead of escaped markup', () => {
     const html = sanitizeArticleHtml('<span style="color:red">从浏览器复制</span><custom>文本</custom>')
     const body = new DOMParser().parseFromString(html, 'text/html').body

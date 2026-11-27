@@ -4,6 +4,14 @@ import { JSDOM } from 'jsdom'
 import { parseArticleQuery, articleQuery, safeListReturn, canReturnToListHistory } from './publicNavigation'
 import { setPageSeo, routeSeo } from './seo'
 
+test('admin and editor tabs show their actual page names while remaining private', () => {
+  for (const [path, title] of [['/admin', '后台概览'], ['/admin/todos', '待办事项'], ['/admin/comments', '评论管理'], ['/login', '管理员登录'], ['/articles/new', '创作新文章'], ['/articles/12/edit', '编辑文章']]) {
+    assert.equal(routeSeo(path!, true).title, title)
+    assert.equal(routeSeo(path!, true).noindex, true)
+  }
+  assert.equal(routeSeo('/admin/unknown', true).title, '页面未找到')
+})
+
 test('article query normalizes all filters and omits invalid values', () => {
   assert.deepEqual(parseArticleQuery({ q: '  vue  ', category: '02', tag: '3', page: '-1' }), { q: 'vue', tag: 3, category: undefined, page: 1 })
   assert.deepEqual(articleQuery({ q: 'vue', tag: 3, category: undefined, page: 2 }), { q: 'vue', tag: '3', page: '2' })

@@ -39,6 +39,7 @@ class Settings:
     APP_DEBUG: bool = _bool(os.getenv("APP_DEBUG"), True)
     APP_SECRET_KEY: str = os.getenv("APP_SECRET_KEY", "change-me")
     PUBLIC_SITE_URL: str = os.getenv("PUBLIC_SITE_URL", "https://www.example.com").strip()
+    SPA_TEMPLATE_URL: str = os.getenv("SPA_TEMPLATE_URL", "http://sudothink-frontend:8100/_spa-template.html").strip()
 
     # JWT
     JWT_SECRET: str = os.getenv("JWT_SECRET", "change-me-jwt")

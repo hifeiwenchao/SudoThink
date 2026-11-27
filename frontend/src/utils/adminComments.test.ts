@@ -14,6 +14,8 @@ Object.assign(globalThis, {
   Element: dom.window.Element, HTMLElement: dom.window.HTMLElement, SVGElement: dom.window.SVGElement,
   Node: dom.window.Node, MutationObserver: dom.window.MutationObserver,
   MouseEvent: dom.window.MouseEvent,
+  Event: dom.window.Event, CustomEvent: dom.window.CustomEvent, KeyboardEvent: dom.window.KeyboardEvent, FocusEvent: dom.window.FocusEvent,
+  HTMLInputElement: dom.window.HTMLInputElement, HTMLButtonElement: dom.window.HTMLButtonElement,
   getComputedStyle: dom.window.getComputedStyle, requestAnimationFrame: dom.window.requestAnimationFrame,
   cancelAnimationFrame: dom.window.cancelAnimationFrame,
   ResizeObserver: class { observe() {} unobserve() {} disconnect() {} },
@@ -32,7 +34,7 @@ writeFileSync(apiTarget, compile(readFileSync(new URL('../api/admin.ts', import.
 const { descriptor } = parse(readFileSync(new URL('../views/AdminComments.vue', import.meta.url), 'utf8'))
 const script = compileScript(descriptor, { id: 'admin-comments-test' })
 const source = script.content
-  .replace("import { ElMessage } from 'element-plus'", 'const ElMessage = { success() {} }')
+  .replace("import { ElMessage, ElMessageBox } from 'element-plus'", "import { ElMessageBox as ActualMessageBox } from 'element-plus'; const ElMessage = { success() {} }; const ElMessageBox = { confirm: (...args) => globalThis.__commentConfirm ? globalThis.__commentConfirm(...args) : ActualMessageBox.confirm(...args) }")
   .replace(/(['"])@\/api\/admin\1/g, JSON.stringify(pathToFileURL(apiTarget).href))
   .replace("import http from '@/api/http'", httpBridge)
   .replace("import { PUBLIC_SITE_URL } from '@/site'", "const PUBLIC_SITE_URL = 'https://public.example.net/'")
@@ -49,6 +51,7 @@ type State = {
   actingId: number | null; articleOptions: AdminArticleBrief[]; articlesLoading: boolean
   load: () => Promise<void>; searchArticles: (query: string) => Promise<void>
   handleApprove: (id: number) => Promise<void>; handleReject: (id: number) => Promise<void>
+  selectedIds: number[]; batchBusy: boolean; reviewBatch(action: 'approve' | 'reject'): Promise<void>
 }
 const article = { deleted_at: null, id: 42, title: '相关文章', slug: 'article', is_published: true, view_count: 0, created_at: '2026-11-12T08:00:00Z', author: { id: 1, username: 'admin' } }
 function comment(id: number, status: AdminComment['status'] = 'pending'): AdminComment {
@@ -73,17 +76,21 @@ async function settle() { await flushPromises(); await nextTick(); await flushPr
 async function mount(options: {
   comments?: (params: Request['params']) => Promise<PageResp<AdminComment>>
   articles?: (params: Request['params']) => Promise<PageResp<AdminArticleBrief>>
-  post?: (url: string) => Promise<unknown>
+  post?: (url: string, body?: unknown) => Promise<unknown>
+  confirm?: () => Promise<unknown>
+  realConfirm?: boolean
 } = {}) {
   const requests: Request[] = []
   const posts: string[] = []
+  const bodies: unknown[] = []
+  Object.assign(globalThis, { __commentConfirm: options.realConfirm ? null : options.confirm ?? (() => Promise.resolve()) })
   Object.assign(globalThis, { __adminCommentHttp: {
     async get(url: string, { params }: { params: Request['params'] }) {
       requests.push({ url, params })
       if (url === '/admin/articles') return options.articles?.(params) ?? { items: [article], total: 1, page: 1, size: 100 }
       return options.comments?.(params) ?? page([comment(1)])
     },
-    async post(url: string) { posts.push(url); return options.post?.(url) },
+    async post(url: string, body?: unknown) { posts.push(url); bodies.push(body); return options.post?.(url, body) },
   } })
   const container = document.createElement('div')
   document.body.append(container)
@@ -91,9 +98,142 @@ async function mount(options: {
   app.use(ElementPlus)
   const instance = app.mount(container) as unknown as { $: { setupState: State } }
   await settle()
-  return { container, state: instance.$.setupState, requests, posts, unmount: () => { app.unmount(); container.remove() } }
+  return { container, state: instance.$.setupState, requests, posts, bodies, unmount: () => { app.unmount(); container.remove() } }
 }
 function commentRequests(requests: Request[]) { return requests.filter((request) => request.url.startsWith('/admin/comments')) }
+
+test('batch review uses current-page selection and retains it after failure for retry', async t => {
+  let fail = true
+  const view = await mount({ comments: async () => page([comment(1), comment(2)]), post: async () => { if (fail) throw new Error('offline') } })
+  t.after(view.unmount)
+  const checkbox = view.container.querySelector<HTMLInputElement>('tr.el-table__row input[type="checkbox"]')
+  assert.ok(checkbox, 'desktop rows offer selection')
+  checkbox.click()
+  await settle()
+  assert.deepEqual(view.state.selectedIds, [1])
+  await view.state.reviewBatch('approve')
+  assert.deepEqual(view.state.selectedIds, [1])
+  assert.ok(view.container.querySelector('[role="alert"]'))
+  fail = false
+  await view.state.reviewBatch('reject')
+  assert.deepEqual(view.bodies, [{ ids: [1], action: 'approve' }, { ids: [1], action: 'reject' }])
+  assert.deepEqual(view.state.selectedIds, [])
+})
+
+test('batch confirmation is exclusive, cancellation posts nothing, and filters clear selection', async t => {
+  const gate = deferred<void>()
+  const view = await mount({ confirm: () => gate.promise })
+  t.after(view.unmount)
+  view.state.selectedIds = [1]
+  const pending = view.state.reviewBatch('approve')
+  await view.state.reviewBatch('reject')
+  await view.state.handleApprove(1)
+  assert.equal(view.state.batchBusy, true)
+  assert.deepEqual(view.posts, [])
+  gate.reject(new Error('cancel'))
+  await pending
+  assert.deepEqual(view.state.selectedIds, [1])
+  view.state.status = 'pending'
+  await settle()
+  assert.deepEqual(view.state.selectedIds, [])
+})
+
+test('mobile comments open private context in an accessible details drawer', async t => {
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
+  const view = await mount()
+  t.after(() => { view.unmount(); Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 }) })
+  const card = view.container.querySelector('.comment-card')
+  assert.ok(card)
+  assert.equal(view.container.querySelector('.el-table'), null)
+  assert.ok(card.querySelector('input[type="checkbox"]'))
+  assert.equal(card.textContent?.includes('203.0.113.7'), false)
+  card.querySelector<HTMLButtonElement>('button[aria-label="查看评论 1 详情"]')!.click()
+  await settle()
+  const drawer = document.body.querySelector('.comment-detail-drawer')
+  assert.ok(drawer)
+  assert.ok(drawer.textContent?.includes('203.0.113.7'))
+  drawer.querySelector<HTMLButtonElement>('.el-drawer__close-btn')!.click()
+  await settle()
+  assert.ok(card.textContent?.includes('评论 1'))
+})
+
+test('the real bulk confirmation posts only after explicit confirmation', async t => {
+  const view = await mount({ realConfirm: true })
+  t.after(view.unmount)
+  view.container.querySelector<HTMLInputElement>('tr.el-table__row input[type="checkbox"]')!.click()
+  await settle()
+  const bulk = [...view.container.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent?.trim() === '批量通过')!
+  bulk.click()
+  await settle()
+  assert.deepEqual(view.posts, [])
+  const box = document.body.querySelector('.el-message-box')!
+  assert.match(box.textContent ?? '', /选中的 1 条评论/)
+  ;[...box.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent?.trim() === '确认')!.click()
+  await settle()
+  assert.deepEqual(view.posts, ['/admin/comments/batch-review'])
+  assert.deepEqual(view.bodies, [{ ids: [1], action: 'approve' }])
+})
+
+test('details remain available during a batch and show its completed moderation state', async t => {
+  const gate = deferred<void>()
+  const view = await mount({ post: () => gate.promise })
+  t.after(view.unmount)
+  view.state.status = 'pending'
+  await settle()
+  view.state.selectedIds = [1]
+  const pending = view.state.reviewBatch('approve')
+  await settle()
+  const more = view.container.querySelector<HTMLButtonElement>('button[aria-label="查看评论 1 详情"]')!
+  assert.equal(more.disabled, false)
+  more.click()
+  await settle()
+  const drawer = [...document.body.querySelectorAll('.comment-detail-drawer')].at(-1)!
+  assert.ok(drawer.textContent?.includes('待审核'))
+  gate.resolve()
+  await pending
+  await settle()
+  assert.ok(drawer.textContent?.includes('已通过'))
+})
+
+test('a completed batch refreshes the current filter while retaining its valid selection', async t => {
+  const gate = deferred<void>()
+  let reviewed = false
+  const view = await mount({ comments: async params => page(params.status === 'approved' ? (reviewed ? [comment(1, 'approved'), comment(2, 'approved')] : [comment(2, 'approved')]) : [comment(1)]), post: async () => { await gate.promise; reviewed = true } })
+  t.after(view.unmount)
+  view.state.selectedIds = [1]
+  const pending = view.state.reviewBatch('approve')
+  await settle()
+  view.state.status = 'approved'
+  await settle()
+  const requests = view.requests.length
+  view.state.selectedIds = [2]
+  gate.resolve()
+  await pending
+  assert.deepEqual(view.state.selectedIds, [2])
+  assert.equal(view.requests.length, requests + 1)
+  assert.deepEqual(view.state.list.map(item => item.id), [1, 2])
+  assert.equal(commentRequests(view.requests).at(-1)?.params.status, 'approved')
+  assert.equal(view.container.querySelector<HTMLInputElement>('tr.el-table__row:nth-child(2) input[type="checkbox"]')?.checked, true)
+})
+
+test('switching mobile and desktop clears selection so rendered checkboxes match the count', async t => {
+  const view = await mount()
+  t.after(() => { view.unmount(); Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 }) })
+  view.container.querySelector<HTMLInputElement>('tr.el-table__row input[type="checkbox"]')!.click()
+  await settle()
+  assert.deepEqual(view.state.selectedIds, [1])
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
+  window.dispatchEvent(new dom.window.Event('resize'))
+  await settle()
+  assert.deepEqual(view.state.selectedIds, [])
+  view.container.querySelector<HTMLInputElement>('.comment-card input[type="checkbox"]')!.click()
+  await settle()
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 })
+  window.dispatchEvent(new dom.window.Event('resize'))
+  await settle()
+  assert.deepEqual(view.state.selectedIds, [])
+  assert.equal(view.container.querySelector<HTMLInputElement>('tr.el-table__row input[type="checkbox"]')?.checked, false)
+})
 
 test('article and status filters combine on the unified endpoint and reset the page', async (t) => {
   const view = await mount({ comments: async (params) => page([comment(Number(params.page))], 31, Number(params.page)) })
@@ -124,17 +264,18 @@ test('status tags and available review actions match each row, with public links
   assert.ok(rows[0].textContent?.includes('待审核'))
   assert.ok(rows[1].textContent?.includes('已通过'))
   assert.ok(rows[2].textContent?.includes('已驳回'))
-  assert.deepEqual(rows.map((row) => [...row.querySelectorAll('button')].map((button) => button.textContent?.trim())), [['通过', '驳回'], ['驳回'], ['通过']])
+  assert.deepEqual(rows.map((row) => [...row.querySelectorAll('button')].map((button) => button.textContent?.trim())), [['通过', '驳回', '更多'], ['驳回', '更多'], ['通过', '更多']])
   assert.equal(rows[0].querySelector('a')?.href, 'https://public.example.net/articles/42')
   assert.equal(rows[2].querySelector('a'), null)
   assert.ok(rows[2].textContent?.includes('草稿'))
-  assert.ok(rows[0].textContent?.includes('private@example.com'))
-  assert.ok(rows[0].textContent?.includes('203.0.113.7'))
-  assert.ok(rows[0].textContent?.includes('浙江省杭州市西湖区'))
-  assert.ok(rows[1].textContent?.includes('浙江省杭州市'))
-  assert.ok(rows[2].textContent?.includes('未知'))
-  assert.ok(rows[0].textContent?.includes('TestBrowser/1.0 (Linux)'))
-  assert.ok(rows[2].textContent?.includes('未记录'))
+  assert.equal(rows[0].textContent?.includes('private@example.com'), false)
+  assert.equal(rows[0].textContent?.includes('203.0.113.7'), false)
+  rows[0].querySelector<HTMLButtonElement>('button[aria-label="查看评论 1 详情"]')!.click()
+  await settle()
+  const drawer = [...document.body.querySelectorAll('.comment-detail-drawer')].at(-1)!
+  assert.ok(drawer.textContent?.includes('private@example.com'))
+  assert.ok(drawer.textContent?.includes('浙江省杭州市西湖区'))
+  assert.ok(drawer.textContent?.includes('TestBrowser/1.0 (Linux)'))
 })
 
 test('reviewing the last item keeps active filters and returns to a valid page without duplicate actions', async (t) => {

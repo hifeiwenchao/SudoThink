@@ -12,6 +12,14 @@
   --app-quote-bg: #f3f7fd;
   --app-quote-text: #536780;
   --app-selection-bg: #c9dfff;
+  --app-radius-sm: 8px;
+  --app-radius: 12px;
+  --app-radius-lg: 18px;
+  --app-space-xs: 8px;
+  --app-space-sm: 12px;
+  --app-space: 20px;
+  --app-space-lg: 28px;
+  --app-shadow: 0 4px 24px rgba(24, 42, 58, .045);
 }
 
 html.dark {
@@ -27,6 +35,7 @@ html.dark {
   --app-quote-bg: #1c293c;
   --app-quote-text: #b7c6da;
   --app-selection-bg: #2c4f7c;
+  --app-shadow: 0 4px 24px rgba(0, 0, 0, .14);
 }
 
 html, body, #app {
@@ -36,6 +45,57 @@ html, body, #app {
     'Hiragino Sans GB', 'Microsoft YaHei', Arial, sans-serif;
   background: var(--app-page-bg);
   color: var(--el-text-color-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+button, input, textarea, select { font: inherit; }
+button, a, input, textarea, select { -webkit-tap-highlight-color: transparent; }
+:focus-visible { outline: 2px solid var(--el-color-primary); outline-offset: 3px; }
+
+/* Shared feedback and overlays also apply to teleported dialogs/drawers. */
+.el-button { border-radius: var(--app-radius-sm); font-weight: 500; }
+.el-dialog, .el-message-box, .el-drawer { border-radius: var(--app-radius); }
+.el-dialog__header, .el-drawer__header { color: var(--app-heading); }
+.el-dialog__body, .el-drawer__body { line-height: 1.7; }
+.el-dialog__footer { border-top: 1px solid var(--el-border-color-lighter); padding-top: 16px; }
+.el-message { max-width: calc(100vw - 32px); border-radius: var(--app-radius-sm); }
+.el-message__content { overflow-wrap: anywhere; line-height: 1.6; }
+.el-message-box { max-width: calc(100vw - 32px); }
+.el-drawer__header { margin-bottom: 0; padding-bottom: 20px; border-bottom: 1px solid var(--el-border-color-lighter); }
+.el-drawer__body { overflow-wrap: anywhere; }
+.el-skeleton { --el-skeleton-circle-size: 44px; }
+
+/* Keep density and states consistent across every admin page. */
+.admin-layout .page-heading { gap: 16px; margin-bottom: 24px; }
+.admin-layout h2 { color: var(--app-heading); font-size: clamp(21px, 2vw, 26px); letter-spacing: -.5px; }
+.admin-layout .page-heading h2 { margin: 0; }
+.admin-layout .page-heading p { max-width: 66ch; line-height: 1.7; color: var(--el-text-color-secondary); }
+.admin-layout .table-panel { border-radius: var(--app-radius); box-shadow: var(--app-shadow); }
+.admin-layout .el-table { --el-table-header-bg-color: var(--app-surface-muted); border-radius: var(--app-radius); }
+.admin-layout .el-table th.el-table__cell { padding: 13px 0; font-size: 12px; font-weight: 600; color: var(--el-text-color-secondary); }
+.admin-layout .el-table td.el-table__cell { padding: 15px 0; }
+.admin-layout .el-table .cell { line-height: 1.65; }
+.admin-layout .el-table .el-button + .el-button { margin-left: 6px; }
+.admin-layout .el-tag { border-radius: 6px; }
+.admin-layout .el-pagination { flex-wrap: wrap; row-gap: 8px; }
+.admin-layout .load-error, .admin-layout .error-message, .admin-feedback { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 16px 20px; border: 1px solid var(--el-color-danger-light-7); border-radius: var(--app-radius); background: var(--el-color-danger-light-9); color: var(--el-color-danger); }
+.admin-layout .el-empty { padding: 40px 16px; }
+.admin-layout .el-empty__description p { max-width: 40ch; line-height: 1.8; }
+.admin-initial-loading { padding: 28px; border: 1px solid var(--el-border-color-lighter); border-radius: var(--app-radius); background: var(--app-surface); }
+.admin-initial-loading > p { margin: 0 0 20px; font-size: 13px; color: var(--el-text-color-secondary); }
+.admin-description { margin: 8px 0 0; font-size: 13px; color: var(--el-text-color-secondary); line-height: 1.7; }
+.admin-overflow-trigger { min-width: 44px; }
+
+@media (max-width: 700px) {
+  .el-dialog { --el-dialog-padding-primary: 18px; margin-top: 6vh; }
+  .el-dialog__body { max-height: 72dvh; overflow-y: auto; }
+  .admin-layout .page-heading { margin-bottom: 20px; }
+  .admin-layout .el-table td.el-table__cell { padding: 12px 0; }
+  .admin-initial-loading { padding: 20px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
 
 a {

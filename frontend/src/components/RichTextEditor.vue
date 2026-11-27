@@ -2,7 +2,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { EditorContent, useEditor } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
-import Image from '@tiptap/extension-image'
+import { ArticleImage } from '@/utils/editorImage'
 import Placeholder from '@tiptap/extension-placeholder'
 import TextAlign from '@tiptap/extension-text-align'
 import { Link, Picture, VideoCamera, RefreshLeft, RefreshRight, Minus } from '@element-plus/icons-vue'
@@ -32,7 +32,7 @@ const editor = useEditor({
       heading: { levels: [2, 3, 4] },
       link: { openOnClick: false, defaultProtocol: 'https', HTMLAttributes: { rel: 'noopener noreferrer', target: '_blank' } },
     }),
-    Image.configure({ allowBase64: false }),
+    ArticleImage,
     Video,
     Placeholder.configure({ placeholder: '写下你的想法，或者粘贴已有内容…' }),
     TextAlign.configure({ types: ['heading', 'paragraph'] }),
@@ -68,6 +68,11 @@ function setUploading(value: boolean) {
 
 function insertUploaded(result: UploadedMedia) {
   if (props.disabled || dialog.value !== result.kind) return
+  if (result.kind === 'image') {
+    editor.value?.chain().focus().setImage({ src: result.url, alt: media.alt.trim(), width: result.width, height: result.height }).run()
+    dialog.value = null
+    return
+  }
   media.url = result.url
   insertMedia()
 }
@@ -190,7 +195,7 @@ function removeLink() {
 </template>
 
 <style scoped>
-.rich-editor { background: var(--app-surface); }
+.rich-editor { background: var(--app-surface); min-width: 0; }
 .editor-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding: 10px 20px; background: var(--app-surface-muted); border-top: 1px solid var(--el-border-color-lighter); border-bottom: 1px solid var(--el-border-color-lighter); }
 .block-select { width: 94px; }
 .align-select { width: 86px; }
@@ -198,7 +203,7 @@ function removeLink() {
 .block-select :deep(.el-select__wrapper.is-focused), .align-select :deep(.el-select__wrapper.is-focused) { outline: 2px solid var(--el-color-primary); outline-offset: -2px; }
 .toolbar-divider { height: 17px; width: 1px; background: var(--el-border-color); margin: 0 3px; }
 .tool-group { display: flex; align-items: center; gap: 2px; }
-.tool-button { display: inline-flex; align-items: center; justify-content: center; width: 29px; height: 30px; padding: 0; background: transparent; border: 0; border-radius: 5px; color: var(--el-text-color-regular); cursor: pointer; font: inherit; font-size: 15px; transition: background .15s, color .15s; }
+.tool-button { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 34px; padding: 0; background: transparent; border: 0; border-radius: 5px; color: var(--el-text-color-regular); cursor: pointer; font: inherit; font-size: 15px; transition: background .15s, color .15s; }
 .tool-button:hover:not(:disabled) { background: var(--el-fill-color); color: var(--el-text-color-primary); }
 .tool-button[aria-pressed='true'] { color: var(--el-color-primary); background: var(--el-color-primary-light-9); }
 .tool-button[aria-pressed='true']:hover:not(:disabled) { color: var(--el-color-primary); background: var(--el-color-primary-light-8); }
@@ -212,9 +217,10 @@ function removeLink() {
 .code-button { font-family: monospace; font-size: 12px; }
 .list-button { font-size: 24px; }
 .history-tools { margin-left: auto; }
-:deep(.editor-document) { min-height: 440px; padding: 27px 30px 40px; outline: none; caret-color: var(--el-text-color-primary); }
+:deep(.editor-document) { box-sizing: border-box; min-height: 520px; padding: 30px clamp(22px, 4vw, 52px) 48px; overflow-wrap: anywhere; outline: none; caret-color: var(--el-text-color-primary); }
 :deep(.editor-document p.is-editor-empty:first-child::before) { color: var(--el-text-color-placeholder); content: attr(data-placeholder); float: left; height: 0; pointer-events: none; }
 :deep(.editor-document .ProseMirror-selectednode) { outline: 2px solid var(--el-color-primary); }
+:deep(.editor-document:focus-visible) { box-shadow: inset 3px 0 var(--el-color-primary); }
 .editor-help { padding: 0 28px 19px; color: var(--el-text-color-secondary); font-size: 11px; line-height: 1.7; }
 .is-disabled { opacity: .65; }
 .media-hint { font-size: 12px; color: var(--el-text-color-secondary); line-height: 1.7; }
@@ -223,5 +229,7 @@ function removeLink() {
   :deep(.editor-document) { padding: 22px 18px; min-height: 340px; }
   .editor-help { padding: 0 18px 16px; }
   .toolbar-divider { margin: 0 1px; }
+  .tool-button { width: 34px; height: 36px; }
+  .tool-group { gap: 3px; }
 }
 </style>

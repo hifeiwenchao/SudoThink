@@ -65,7 +65,7 @@ function retryImage() {
 .donation-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; flex-shrink: 0; padding: 12px 18px; border: 1px solid var(--blog-accent); border-radius: 7px; color: var(--blog-accent); background: var(--blog-surface); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: background .15s; }
 .donation-button:hover { background: var(--blog-accent-soft); }
 .donation-button svg { width: 17px; height: 17px; }
-.donation-panel-floating { position: fixed; z-index: 45; right: max(24px, env(safe-area-inset-right)); bottom: 24vh; display: block; margin: 0; padding: 0; border: 0; background: transparent; }
+.donation-panel-floating { position: fixed; z-index: 45; right: max(24px, env(safe-area-inset-right)); bottom: calc(88px + env(safe-area-inset-bottom)); display: block; margin: 0; padding: 0; border: 0; background: transparent; }
 .donation-panel-floating .donation-button { flex-direction: column; gap: 5px; width: 58px; min-height: 66px; padding: 10px 8px; border-color: var(--blog-border); border-radius: 10px; background: var(--blog-surface); box-shadow: 0 4px 18px rgb(0 0 0 / .08); font-size: 12px; }
 .donation-panel-floating .donation-button:hover { border-color: var(--blog-accent); background: var(--blog-accent-soft); }
 .donation-panel-floating .donation-button svg { width: 22px; height: 22px; }
@@ -84,10 +84,10 @@ function retryImage() {
 .donation-image-error svg { width: 14px; height: 14px; }
 .donation-scan { margin: 18px 0 6px; font-size: 13px; color: var(--el-text-color-primary); }
 .donation-thanks { margin: 0; color: var(--el-text-color-secondary); font-size: 12px; }
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .donation-panel { align-items: flex-start; flex-direction: column; padding: 22px; gap: 18px; }
   .donation-button { width: 100%; }
-  .donation-panel-floating { right: max(16px, env(safe-area-inset-right)); bottom: calc(88px + env(safe-area-inset-bottom)); padding: 0; }
+  .donation-panel-floating { right: max(16px, env(safe-area-inset-right)); bottom: calc(12px + env(safe-area-inset-bottom)); padding: 0; }
   .donation-panel-floating .donation-button { width: 52px; min-height: 60px; padding: 8px 6px; }
 }
 </style>

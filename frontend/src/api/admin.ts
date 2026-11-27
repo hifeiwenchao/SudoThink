@@ -98,4 +98,7 @@ export const adminApi = {
       params: { page, size, ...filters },
     })
   },
+  batchReviewComments(ids: number[], action: 'approve' | 'reject') {
+    return http.post<unknown, { updated: number }>('/admin/comments/batch-review', { ids, action })
+  },
 }

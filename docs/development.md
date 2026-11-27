@@ -72,6 +72,7 @@ await schedule_task_once(
 | 模块 | 方法 | 路径 |
 | --- | --- | --- |
 | 健康检查 | GET | `/api/health` |
+| 进程存活 / 依赖就绪 | GET | `/api/health/live` / `/api/health/ready` |
 | 登录 | POST | `/api/auth/login` |
 | 文章列表 | GET | `/api/articles` |
 | 文章详情 | GET | `/api/articles/<id>` |
@@ -95,6 +96,7 @@ await schedule_task_once(
 | 评论列表 | GET | `/api/articles/<id>/comments` |
 | 提交访客评论 | POST | `/api/articles/<id>/comments` |
 | 评论管理列表 | GET | `/api/admin/comments`（管理员，支持 `article_id`、`status`、`page`、`size`） |
+| 批量审核评论 | POST | `/api/admin/comments/batch-review`（管理员，`ids` 最多 100 个、`action=approve\|reject`） |
 | 通过 / 驳回评论 | POST | `/api/comments/<id>/approve` / `/api/comments/<id>/reject`（管理员或文章作者） |
 | CDN 运维配置 | GET | `/api/admin/operations/cdn/config`（管理员） |
 | CDN 缓存刷新 | POST | `/api/admin/operations/cdn/refresh`（管理员，`urls`、`object_type`） |
@@ -106,4 +108,12 @@ await schedule_task_once(
 
 文章 `deleted_at` 为空表示活动记录。两个删除入口均改为软删除，`POST /api/admin/articles/<id>/restore` 恢复；后台 `status=all|published|draft|trash` 筛选，默认排除回收站。公开列表、详情、评论入口、首页统计及 sitemap 均排除回收站，升级幂等添加删除时间与索引。列表查询不读取或返回 `content`，详情保留完整正文。
 
-`/api/seo/sitemap.xml` 使用配置的 `PUBLIC_SITE_URL` 生成公开文章索引，超过 10000 篇时返回分页 sitemap index；`/api/seo/robots.txt` 提供公开站规则。NGINX 将根目录的 sitemap/robots 代理到相应接口，管理域返回禁止抓取规则。页面 meta 与 canonical 由 Vue 更新，非执行 JavaScript 的抓取器可能无法获得文章 meta；SPA 未知路径仍可能返回 HTTP 200，页面本身显示 404 并设置 noindex。严格爬虫状态码及非 JS 分享卡片需要后续预渲染或服务端渲染。
+`/api/seo/sitemap.xml` 使用配置的 `PUBLIC_SITE_URL` 生成公开文章索引，超过 10000 篇时返回分页 sitemap index；`/api/seo/robots.txt` 提供公开站规则。NGINX 将根目录的 sitemap/robots 代理到相应接口，管理域返回禁止抓取规则。
+
+生产前端 NGINX 将公开页面交给 `/api/seo/page`，覆盖 `X-Public-Path` 头。后端从可信 `SPA_TEMPLATE_URL` 读取当前构建入口，注入 title、description、canonical、Open Graph 及无 JavaScript 可读的正文，交互仍由 Vue 提供。此过程不增加阅读量。草稿、回收站及未知路径返回真实 404/noindex，模板不可用返回 503；管理入口保持 SPA/noindex，已有静态文件与微信验证文件直接提供。模板读取禁止重定向，限制时长与大小，成功结果短暂缓存。
+
+## 登录保护与健康检查
+
+登录前通过 Redis 原子预占尝试次数：同一账号每 15 分钟最多 5 次、同一来源 IP 最多 30 次。成功后清除账号计数，IP 计数保留；超限返回 429 与 `Retry-After`，Redis 不可用返回 503。账号和 IP 的限流键使用摘要，日志不记录原始登录凭据；来源 IP 沿用可信代理策略。
+
+`/api/health/live` 只检查进程响应。`/api/health/ready` 与兼容入口 `/api/health` 并行检查 MySQL、Redis 和 RabbitMQ，每项限制 2.5 秒；失败返回 503 与布尔检查结果，不暴露连接凭据。RabbitMQ 只建立连接，不声明队列或投递任务。

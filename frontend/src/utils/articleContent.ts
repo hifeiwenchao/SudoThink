@@ -24,7 +24,7 @@ export function sanitizeArticleHtml(content: string): string {
   const clean = DOMPurify.sanitize(content, {
     ALLOWED_TAGS: ['p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li',
       'blockquote', 'pre', 'code', 'img', 'video', 'br', 'strong', 'b', 'em', 'i', 'u', 's', 'a', 'hr', 'span'],
-    ALLOWED_ATTR: ['href', 'target', 'rel', 'src', 'alt', 'title', 'style', 'class', 'start', 'controls', 'preload', 'playsinline'],
+    ALLOWED_ATTR: ['href', 'target', 'rel', 'src', 'alt', 'title', 'style', 'class', 'start', 'controls', 'preload', 'playsinline', 'width', 'height', 'loading', 'decoding'],
     ALLOW_DATA_ATTR: false,
   })
   const template = document.createElement('template')
@@ -40,7 +40,13 @@ export function sanitizeArticleHtml(content: string): string {
     link.setAttribute('rel', 'noopener noreferrer')
   })
   template.content.querySelectorAll('img').forEach((image) => {
-    if (!SAFE_IMAGE_URL.test(image.getAttribute('src') || '')) image.remove()
+    if (!SAFE_IMAGE_URL.test(image.getAttribute('src') || '')) { image.remove(); return }
+    image.setAttribute('loading', 'lazy')
+    image.setAttribute('decoding', 'async')
+    for (const name of ['width', 'height']) {
+      const value = image.getAttribute(name) || ''
+      if (!/^[1-9]\d{0,4}$/.test(value) || Number(value) > 10000) image.removeAttribute(name)
+    }
   })
   template.content.querySelectorAll('video').forEach((video) => {
     if (!SAFE_IMAGE_URL.test(video.getAttribute('src') || '')) { video.remove(); return }

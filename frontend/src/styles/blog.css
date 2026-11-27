@@ -1,7 +1,7 @@
 :root {
   --blog-page: #f8faf8;
   --blog-surface: #ffffff;
-  --blog-surface-alt: #eef3ef;
+  --blog-surface-alt: #f0f3f1;
   --blog-text: #1b2c23;
   --blog-muted: #617368;
   --blog-border: #dce5de;
@@ -13,6 +13,8 @@
   --blog-terminal-text: #d2e1d7;
   --blog-terminal-muted: #8fa99a;
   --blog-terminal-accent: #a5e9bc;
+  --blog-card-radius: 12px;
+  --blog-card-shadow: 0 6px 22px rgb(27 44 35 / 5%);
 }
 
 html.dark {
@@ -29,6 +31,7 @@ html.dark {
   --blog-terminal-text: #d5e5da;
   --blog-terminal-muted: #8ca692;
   --blog-terminal-accent: #a3e9ba;
+  --blog-card-shadow: 0 6px 22px rgb(0 0 0 / 16%);
 }
 
 .blog-shell {
@@ -105,10 +108,10 @@ html.dark .blog-shell {
 .blog-shell .theme-switcher:hover { color: var(--blog-accent); border-color: var(--blog-accent); }
 .blog-shell .theme-switcher { font-family: var(--blog-mono); font-size: 11px; }
 .blog-footer { border-top: 1px solid var(--blog-border); margin-top: 72px; }
-.blog-footer-inner { width: min(1120px, calc(100% - 64px)); margin: 0 auto; padding: 28px 0 25px; }
+.blog-footer-inner { width: min(1120px, calc(100% - 64px)); margin: 0 auto; padding: 28px 0 108px; }
 .blog-footer-note { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--blog-muted); }
 .blog-footer-prompt { font: 600 18px var(--blog-mono); color: var(--blog-accent); }
-.blog-footer-bottom { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 22px; color: var(--blog-muted); font: 10px/1.8 var(--blog-mono); letter-spacing: .1px; }
+.blog-footer-bottom { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 22px; padding-right: 84px; color: var(--blog-muted); font: 10px/1.8 var(--blog-mono); letter-spacing: .1px; }
 .blog-footer-separator { padding: 0 9px; opacity: .5; }
 .blog-footer-bottom button { display: flex; align-items: center; gap: 8px; padding: 4px 0; border: 0; background: none; color: var(--blog-muted); font-size: 12px; cursor: pointer; white-space: nowrap; }
 .blog-footer-bottom button:hover { color: var(--blog-accent); }
@@ -123,7 +126,7 @@ html.dark .blog-shell {
   .blog-header-divider { display: none; }
   .blog-nav { gap: 25px; }
   .blog-footer { margin-top: 48px; }
-  .blog-footer-inner { padding: 24px 0; }
+  .blog-footer-inner { padding: 24px 0 calc(104px + env(safe-area-inset-bottom)); }
   .blog-footer-note { align-items: flex-start; font-size: 12px; line-height: 1.9; }
   .blog-footer-bottom { align-items: flex-start; flex-wrap: wrap; gap: 16px; }
 }

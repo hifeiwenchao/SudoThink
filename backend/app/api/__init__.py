@@ -13,6 +13,7 @@ from app.api.health import bp as health_bp
 from app.api.tag import bp as tag_bp
 from app.api.wechat import bp as wechat_bp
 from app.api.seo import bp as seo_bp
+from app.api.public_render import bp as public_render_bp
 
 
 def register_blueprints(app: Sanic) -> None:
@@ -28,6 +29,7 @@ def register_blueprints(app: Sanic) -> None:
         comment_bp,
         wechat_bp,
         seo_bp,
+        public_render_bp,
         admin_bp,
         url_prefix="/api",
     )

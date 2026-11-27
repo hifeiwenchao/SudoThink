@@ -123,7 +123,7 @@ curl --fail https://www.example.com/api/health
 curl --fail https://admin.example.com/api/health
 ```
 
-健康检查应返回 `code: 0`、`data.status: "ok"`、`data.redis: true`。默认 HTTP 自动跳转 HTTPS，裸域跳转公开站点，并保留路径与查询参数。
+健康检查应返回 `code: 0`、`data.status: "ok"`，且 `data.checks` 中 MySQL、Redis、RabbitMQ 均为 `true`；依赖不可用时返回 503。进程存活检查使用 `/api/health/live`。默认 HTTP 自动跳转 HTTPS，裸域跳转公开站点，并保留路径与查询参数。
 
 ### 静态资源 CDN 发布
 

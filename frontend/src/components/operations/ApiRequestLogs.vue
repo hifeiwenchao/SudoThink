@@ -159,7 +159,8 @@ onBeforeUnmount(() => {
       {{ error }}
       <el-button :loading="loading" @click="load()">重试</el-button>
     </div>
-    <el-table :data="items" row-key="id" v-loading="loading" stripe empty-text="暂无符合条件的请求记录">
+    <div v-if="loading && !items.length" class="admin-initial-loading" role="status" aria-label="请求记录加载中"><p>正在读取请求记录…</p><el-skeleton :rows="5" animated /></div>
+    <el-table v-else-if="!error" :data="items" row-key="id" v-loading="loading" stripe empty-text="暂无符合条件的请求记录">
       <el-table-column type="expand" width="48">
         <template #default="{ row }">
           <div class="request-details">

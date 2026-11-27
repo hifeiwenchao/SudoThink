@@ -192,7 +192,7 @@ onBeforeUnmount(() => { requestId++ })
         </div>
 
         <div v-else class="article-list">
-          <article v-for="(item, index) in list" :key="item.id" class="article-card" :class="{ 'first-article': index === 0 && page === 1 }">
+          <article v-for="item in list" :key="item.id" class="article-card">
             <div class="article-meta">
               <button v-if="item.category" class="article-category" @click="selectCategory(item.category.id)">{{ item.category.name }}</button>
               <span v-else class="article-category-label">未分类</span>
@@ -320,26 +320,25 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 .active-filters > span { padding: 3px 7px; background: var(--blog-surface-alt); border-radius: 3px; max-width: 100%; }
 .active-filters button { padding: 3px 0; border: none; background: transparent; color: var(--blog-accent); font-size: 11px; }
 .active-filters button span { margin-left: 5px; }
-.article-card { padding: 25px 0 26px; border-bottom: 1px solid var(--blog-border); }
-.article-card:first-child { padding-top: 12px; }
-.article-card.first-article { position: relative; margin-bottom: 5px; padding: 24px; background: var(--blog-surface); border: 1px solid var(--blog-border); border-radius: 8px; }
-.first-article::before { content: ''; position: absolute; left: -1px; top: 24px; width: 2px; height: 25px; background: var(--blog-accent); }
+.article-list { display: grid; gap: 16px; }
+.article-card { min-width: 0; padding: 24px; border: 1px solid var(--blog-border); border-radius: var(--blog-card-radius); background: var(--blog-surface); transition: border-color .18s ease, box-shadow .18s ease; }
+.article-card:focus-within { border-color: var(--blog-accent); }
+@media (hover: hover) { .article-card:hover { border-color: color-mix(in srgb, var(--blog-accent) 35%, var(--blog-border)); box-shadow: var(--blog-card-shadow); } }
 .article-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-family: var(--blog-mono); color: var(--blog-muted); font-size: 10px; line-height: 1.6; margin-bottom: 11px; }
 .article-category, .article-category-label { color: var(--blog-accent); font-family: inherit; font-size: 10px; line-height: 1.6; font-weight: 600; max-width: 100%; overflow-wrap: anywhere; }
 .article-category { background: none; padding: 0; border: none; }
 .article-category:hover { text-decoration: underline; text-underline-offset: 4px; }
 .meta-divider { opacity: .5; }
 .article-body { min-width: 0; }
-.article-body.has-cover { display: grid; grid-template-columns: minmax(0, 1fr) 142px; gap: 23px; }
+.article-body.has-cover { display: grid; grid-template-columns: minmax(0, 1fr) 152px; gap: 24px; }
 .article-copy { min-width: 0; }
 .article-copy h3 { margin: 0; font-size: 20px; font-weight: 650; line-height: 1.55; letter-spacing: -.35px; overflow-wrap: anywhere; }
-.first-article .article-copy h3 { font-size: 23px; }
 .article-copy h3 a { text-decoration: none; color: var(--blog-text); transition: color .15s ease; }
 .article-copy h3 a:hover { color: var(--blog-accent); }
 .title-arrow { display: inline; vertical-align: -1px; width: 15px; margin-left: 10px; color: var(--blog-accent); opacity: 0; transition: opacity .15s ease, transform .15s ease; }
 .article-copy h3 a:hover .title-arrow, .article-copy h3 a:focus-visible .title-arrow { opacity: 1; transform: translateX(2px); }
-.article-summary { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin: 10px 0 0; color: var(--blog-muted); font-size: 12px; line-height: 1.95; overflow-wrap: anywhere; }
-.article-cover { display: block; height: 102px; overflow: hidden; border: 1px solid var(--blog-border); border-radius: 5px; background: var(--blog-surface-alt); }
+.article-summary { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin: 10px 0 0; color: var(--blog-muted); font-size: 13px; line-height: 1.85; overflow-wrap: anywhere; }
+.article-cover { display: block; aspect-ratio: 16 / 9; align-self: start; overflow: hidden; border: 1px solid var(--blog-border); border-radius: 5px; background: var(--blog-surface-alt); }
 .article-cover img { display: block; width: 100%; height: 100%; object-fit: cover; transition: transform .25s ease; }
 .article-cover:hover img { transform: scale(1.035); }
 .article-footer { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; margin-top: 20px; font-size: 10px; }
@@ -437,13 +436,11 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
   .search-form { width: 100%; }
   .search-form input { font-size: 12px; height: 39px; }
   .category-filter { gap: 6px 18px; }
-  .category-filter button { font-size: 11px; }
-  .article-card.first-article { padding: 21px 18px; }
-  .article-card { padding-top: 23px; padding-bottom: 23px; }
-  .first-article .article-copy h3 { font-size: 21px; }
+  .category-filter button { min-height: 36px; font-size: 12px; }
+  .article-list { gap: 14px; }
+  .article-card { padding: 20px 18px; }
   .article-copy h3 { font-size: 19px; }
-  .article-body.has-cover { grid-template-columns: minmax(0, 1fr) 90px; gap: 14px; }
-  .article-cover { height: 82px; }
+  .article-body.has-cover { grid-template-columns: minmax(0, 1fr) 96px; gap: 14px; }
   .article-summary { margin-top: 7px; -webkit-line-clamp: 3; }
   .article-footer { margin-top: 16px; gap: 11px; }
   .article-byline { margin-left: 0; width: 100%; }

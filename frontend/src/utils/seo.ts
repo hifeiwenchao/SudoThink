@@ -1,7 +1,16 @@
 import { PUBLIC_SITE_URL } from '../site'
 export interface PageSeo { title: string; description: string; path: string; image?: string; type?: 'website' | 'article'; noindex?: boolean }
 const description = 'SudoThink：分享技术探索、实践经验与日常思考。保持好奇，认真思考，持续记录。'
+const privatePageTitles: Record<string, string> = {
+  '/admin': '后台概览', '/admin/todos': '待办事项', '/admin/users': '用户管理',
+  '/admin/articles': '文章管理', '/admin/comments': '评论管理', '/admin/categories': '分类管理',
+  '/admin/tags': '标签管理', '/admin/about': '关于我设置', '/admin/donations': '打赏设置',
+  '/admin/operations': '运维管理', '/admin/music': '音乐设置', '/login': '管理员登录',
+  '/articles/new': '创作新文章',
+}
 export function routeSeo(path: string, admin = false): PageSeo {
+  const privateTitle = privatePageTitles[path] || (/^\/articles\/\d+\/edit\/?$/.test(path) ? '编辑文章' : '')
+  if (privateTitle) return { title: privateTitle, description: 'SudoThink 管理工作空间。', path, noindex: true }
   const page = path === '/about' ? ['关于我', '关于 SudoThink 与博客作者，记录技术、生活与探索。'] : path === '/tools' ? ['工具箱', '时间戳、二维码、JSON、cron 等浏览器本地实用工具。'] : path === '/' ? ['记录、思考，然后构建', description] : path.startsWith('/articles/') && /^\/articles\/\d+$/.test(path) ? ['文章', description] : ['页面未找到', '页面可能已移动或不存在，欢迎浏览 SudoThink 的其他文章。']
   return { title: page[0]!, description: page[1]!, path, noindex: admin || path === '/login' || path.startsWith('/admin') || path.endsWith('/edit') || path === '/articles/new' || page[0] === '页面未找到' }
 }

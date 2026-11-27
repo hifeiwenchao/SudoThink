@@ -8,7 +8,7 @@ import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
 import ts from 'typescript'
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://admin.example.com/', pretendToBeVisual: true })
 Object.assign(globalThis, { window: dom.window, document: dom.window.document, Document: dom.window.Document, Element: dom.window.Element,
-  HTMLElement: dom.window.HTMLElement, SVGElement: dom.window.SVGElement, Node: dom.window.Node, MutationObserver: dom.window.MutationObserver,
+  HTMLElement: dom.window.HTMLElement, HTMLImageElement: dom.window.HTMLImageElement, Image: dom.window.Image, SVGElement: dom.window.SVGElement, Node: dom.window.Node, MutationObserver: dom.window.MutationObserver,
   MouseEvent: dom.window.MouseEvent, getComputedStyle: dom.window.getComputedStyle, requestAnimationFrame: dom.window.requestAnimationFrame,
   cancelAnimationFrame: dom.window.cancelAnimationFrame, ResizeObserver: class { observe() {} unobserve() {} disconnect() {} } })
 const { createApp, nextTick, reactive } = await import('vue')
@@ -98,4 +98,24 @@ test('discard leaves server form intact; denied storage warns once and still all
   assert.equal(view.warnings.length, 1)
   await view.state.submit(false); assert.equal(view.state.isDirty, false)
   view.unmount(); Object.defineProperty(window, 'localStorage', { configurable: true, value: storage })
+})
+test('collapsing publish settings retains metadata and leaves draft actions available', async () => {
+  window.localStorage.clear()
+  const view = await mount(2)
+  view.state.form.summary = '保留折叠中的摘要'
+  view.state.form.cover = 'https://example.com/cover.jpg'
+  await nextTick()
+  const settings = view.container.querySelector<HTMLDetailsElement>('details.settings-panel')!
+  assert.equal(settings.open, true)
+  settings.open = false
+  await nextTick()
+  assert.ok(settings.querySelector('textarea'), 'collapsing settings must not unmount editor fields')
+  const save = [...view.container.querySelectorAll<HTMLButtonElement>('.workspace-actions button')].find((button) => button.textContent?.includes('保存草稿'))!
+  assert.ok(save)
+  assert.equal(save.disabled, false)
+  save.click(); await settle()
+  assert.equal(view.state.form.summary, '保留折叠中的摘要')
+  assert.equal(view.state.form.cover, 'https://example.com/cover.jpg')
+  assert.equal(view.state.isDirty, false)
+  view.unmount()
 })

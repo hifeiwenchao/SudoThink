@@ -22,7 +22,7 @@ class LoginValidationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.status, 422)
 
     async def test_invalid_password_bytes_do_not_crash_login(self):
-        with patch.object(auth.User, 'get_or_none', new=AsyncMock(return_value=SimpleNamespace(password_hash='unused'))):
+        with patch.object(auth, 'reserve_login', new=AsyncMock(return_value=('account-key', 0))), patch.object(auth.User, 'get_or_none', new=AsyncMock(return_value=SimpleNamespace(password_hash='unused'))):
             for password in ('invalid\x00password', 'x' * 4097):
                 with self.subTest(password_length=len(password)), self.assertRaises(UnauthorizedError):
                     await login(SimpleNamespace(json={'username': 'admin', 'password': password}))

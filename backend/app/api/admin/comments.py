@@ -1,5 +1,8 @@
 """管理后台 - 评论管理。"""
 from sanic import Blueprint, Request
+from sanic.exceptions import BadRequest
+from tortoise.transactions import in_transaction
+from tortoise.timezone import now
 
 from app.api.comment import _comment_pagination, _moderation_comment_dict
 from app.core.comment_context import locate_comment_ip_detail
@@ -15,6 +18,35 @@ bp = Blueprint("admin_comments", url_prefix="")
 def _ensure_admin(user: User) -> None:
     if not user.is_admin:
         raise ForbiddenError("admin only")
+
+
+@bp.post("/comments/batch-review")
+@login_required
+async def batch_review_comments(request: Request):
+    """Apply one moderation decision atomically; keep every comment record."""
+    _ensure_admin(request.ctx.user)
+    try:
+        body = request.json
+    except BadRequest as exc:
+        raise ValidationError("请求正文必须为有效 JSON") from exc
+    if not isinstance(body, dict) or set(body) != {"ids", "action"}:
+        raise ValidationError("请提供评论编号和审核操作")
+    ids = body["ids"]
+    action = body["action"]
+    if (not isinstance(ids, list) or not 1 <= len(ids) <= 100
+            or any(type(cid) is not int or cid < 1 or cid > 9223372036854775807 for cid in ids)
+            or len(set(ids)) != len(ids)):
+        raise ValidationError("评论编号须为 1 至 100 个不重复的正整数")
+    if not isinstance(action, str) or action not in {"approve", "reject"}:
+        raise ValidationError("审核操作必须为 approve 或 reject")
+    async with in_transaction() as connection:
+        records = await Comment.filter(id__in=ids).using_db(connection).select_for_update()
+        if len(records) != len(ids):
+            raise ValidationError("部分评论不存在，请刷新后重试")
+        updated = await Comment.filter(id__in=ids).using_db(connection).update(
+            is_approved=action == "approve", is_rejected=action == "reject", updated_at=now(),
+        )
+    return success({"updated": updated})
 
 
 @bp.get("/comments")

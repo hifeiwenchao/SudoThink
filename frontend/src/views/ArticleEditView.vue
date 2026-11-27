@@ -288,8 +288,12 @@ onMounted(loadTags)
             {{ isPublished ? '已发布' : '草稿' }}
           </el-tag>
         </div>
-        <p class="save-status" role="status"><span :class="{ dirty: isDirty }" />{{ saveStatus }}</p>
       </div>
+      <p class="workspace-intro">专注写作，让每一个想法清晰呈现。</p>
+    </header>
+
+    <section class="workspace-actions" aria-label="文章保存与发布">
+      <p class="save-status" role="status"><span :class="{ dirty: isDirty }" />{{ saveStatus }}</p>
       <div class="header-actions">
         <el-button :disabled="loading || loadError || !!submitting || hasPendingUploads" @click="previewVisible = true">预览</el-button>
         <el-button
@@ -304,7 +308,7 @@ onMounted(loadTags)
           @click="submit(true)"
         >{{ isPublished ? '更新文章' : '发布文章' }}</el-button>
       </div>
-    </header>
+    </section>
 
     <section v-if="recoveryDraft" class="draft-recovery panel" role="status">
       <p>发现本账号的本地草稿（{{ new Date(recoveryDraft.savedAt).toLocaleString('zh-CN') }}）。请选择恢复或丢弃后继续编辑。</p>
@@ -341,8 +345,8 @@ onMounted(loadTags)
       </main>
 
       <aside class="settings-column">
-        <section class="panel settings-panel">
-          <div class="section-heading"><h2>发布设置</h2><span>文章信息</span></div>
+        <details class="panel settings-panel" open>
+          <summary class="section-heading"><h2>发布设置</h2><span>展开 / 收起</span></summary>
           <el-form :model="form" label-position="top" :disabled="loading || !!submitting || !!recoveryDraft">
             <el-form-item label="文章分类">
               <el-select v-model="form.category_id" aria-label="文章分类" placeholder="未分类" clearable :empty-values="[null, undefined]" :value-on-clear="null" :loading="categoriesLoading" :disabled="categoriesLoading || categoriesError" style="width: 100%">
@@ -391,7 +395,7 @@ onMounted(loadTags)
               <p class="field-hint">选填，可填写公开图片地址或上传本地图片。</p>
             </el-form-item>
           </el-form>
-        </section>
+        </details>
         <section class="publish-note">
           <span class="note-marker">✦</span>
           <div>
@@ -422,12 +426,14 @@ onMounted(loadTags)
 <style scoped>
 .draft-recovery { padding: 16px 20px; margin-bottom: 20px; }
 .article-workspace { max-width: 1320px; margin: 0 auto; padding: 4px 8px 32px; }
-.workspace-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 26px; }
+.workspace-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 22px; }
+.workspace-intro { margin: 0; color: var(--el-text-color-secondary); font-size: 13px; line-height: 1.7; }
+.workspace-actions { position: sticky; top: 0; z-index: 20; display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 22px; padding: 14px 18px; background: var(--app-surface); border: 1px solid var(--el-border-color-lighter); border-radius: 12px; box-shadow: var(--el-box-shadow-lighter); }
 .back-button { padding: 0; height: 24px; color: var(--el-text-color-secondary); font-size: 13px; margin-bottom: 12px; }
 .heading-title { display: flex; align-items: center; gap: 12px; }
 .heading-title h1 { margin: 0; color: var(--app-heading); font-size: 27px; font-weight: 650; letter-spacing: -.6px; }
-.save-status { display: flex; align-items: center; gap: 6px; color: var(--el-text-color-secondary); font-size: 12px; margin: 10px 0 0; }
-.save-status > span { width: 6px; height: 6px; background: var(--el-text-color-placeholder); border-radius: 50%; }
+.save-status { display: flex; align-items: center; gap: 6px; color: var(--el-text-color-secondary); font-size: 12px; margin: 0; line-height: 1.6; }
+.save-status > span { flex-shrink: 0; width: 6px; height: 6px; background: var(--el-text-color-placeholder); border-radius: 50%; }
 .save-status > .dirty { background: var(--el-color-warning); }
 .header-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .header-actions :deep(.el-button + .el-button) { margin-left: 0; }
@@ -435,6 +441,8 @@ onMounted(loadTags)
 .workspace-grid { display: grid; grid-template-columns: minmax(0, 1fr) 290px; align-items: start; gap: 22px; }
 .panel { background: var(--app-surface); border: 1px solid var(--el-border-color-lighter); border-radius: 12px; box-shadow: var(--el-box-shadow-lighter); }
 .writing-panel { min-width: 0; overflow: hidden; }
+.writing-panel :deep(.editor-document) { scroll-margin-top: 92px; }
+.title-input :deep(.el-input__wrapper.is-focus) { box-shadow: 0 1px 0 var(--el-color-primary); }
 .title-field { padding: 26px 26px 24px; border-bottom: 1px solid var(--el-border-color-lighter); }
 .title-field label, .body-heading label { font-size: 13px; font-weight: 600; color: var(--el-text-color-regular); }
 .title-field label span, .body-heading label span { color: var(--el-color-danger); padding-left: 3px; }
@@ -446,9 +454,12 @@ onMounted(loadTags)
 .body-heading { padding: 22px 26px 16px; display: flex; justify-content: space-between; gap: 10px; align-items: center; }
 .body-hint { color: var(--el-text-color-secondary); font-size: 12px; }
 .writing-footer { border-top: 1px solid var(--el-border-color-lighter); padding: 13px 24px; display: flex; justify-content: space-between; color: var(--el-text-color-secondary); font-size: 12px; }
-.settings-column { display: grid; gap: 16px; }
+.settings-column { display: grid; gap: 16px; min-width: 0; }
 .settings-panel { padding: 22px; }
-.section-heading { display: flex; justify-content: space-between; align-items: center; padding-bottom: 20px; }
+.section-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; cursor: pointer; list-style: none; border-radius: 4px; }
+.section-heading::-webkit-details-marker { display: none; }
+.section-heading:focus-visible { outline: 2px solid var(--el-color-primary); outline-offset: 6px; }
+.settings-panel[open] .section-heading { margin-bottom: 22px; }
 .section-heading h2 { margin: 0; font-size: 15px; color: var(--app-heading); }
 .section-heading > span { color: var(--el-text-color-secondary); font-size: 11px; }
 .settings-panel :deep(.el-form-item) { margin-bottom: 24px; }
@@ -479,8 +490,11 @@ onMounted(loadTags)
 }
 @media (max-width: 800px) {
   .article-workspace { padding: 0 0 24px; }
-  .workspace-header { align-items: flex-start; flex-direction: column; gap: 20px; }
-  .header-actions { width: 100%; }
+  .workspace-header { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .workspace-intro { font-size: 12px; }
+  .workspace-actions { flex-direction: column; align-items: stretch; gap: 10px; padding: 12px; margin-bottom: 16px; border-radius: 10px; }
+  .header-actions { display: grid; grid-template-columns: .75fr 1fr 1fr; width: 100%; gap: 6px; }
+  .header-actions :deep(.el-button) { min-width: 0; padding: 0 8px; height: 40px; }
   .workspace-grid { grid-template-columns: minmax(0, 1fr); }
   .settings-column { grid-template-columns: minmax(0, 1fr); }
   .title-field { padding: 20px; }

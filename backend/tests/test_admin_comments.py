@@ -10,6 +10,8 @@ os.environ["PYTHON_DOTENV_DISABLED"] = "1"
 os.environ.setdefault("JWT_SECRET", "admin-comment-tests-only-32-byte-secret")
 
 from tortoise import Tortoise
+from tortoise.queryset import QuerySet
+from sanic.exceptions import BadRequest
 
 from app.api import comment as public_comments
 from app.api.admin import comments
@@ -179,6 +181,57 @@ class AdminCommentTests(unittest.IsolatedAsyncioTestCase):
                 with self.subTest(user=user), self.assertRaises(error):
                     await comments.list_comments(self.request(user))
         resolver.assert_not_awaited()
+
+    async def batch(self, body, user=None):
+        request = self.request(self.admin if user is None else user)
+        request.json = body
+        return await comments.batch_review_comments(request)
+
+    async def test_batch_review_is_idempotent_and_updates_both_flags(self):
+        ids = list(self.records.values())
+        for action in ('approve', 'reject', 'reject', 'approve'):
+            self.assertEqual(self.data(await self.batch({'ids': ids, 'action': action})), {'updated': 6})
+            self.assertEqual({(c.is_approved, c.is_rejected) for c in await Comment.all()}, {(action == 'approve', action == 'reject')})
+
+    async def test_batch_strict_validation_and_missing_ids_leave_every_record_unchanged(self):
+        before = [(c.id, c.is_approved, c.is_rejected) for c in await Comment.all()]
+        for body in (None, [], {}, {'ids': [], 'action': 'approve'}, {'ids': [1, 1], 'action': 'approve'},
+                     *({'ids': [value], 'action': 'approve'} for value in (True, 0, -1, '1', 1.0)),
+                     {'ids': list(range(1, 102)), 'action': 'approve'}, {'ids': [1], 'action': 'delete'},
+                     {'ids': [1], 'action': 'approve', 'extra': True}, {'ids': [1, 999], 'action': 'approve'}):
+            with self.subTest(body=body), self.assertRaises(ValidationError):
+                await self.batch(body)
+            self.assertEqual([(c.id, c.is_approved, c.is_rejected) for c in await Comment.all()], before)
+
+    async def test_batch_requires_active_admin(self):
+        for user, error in ((self.reader, ForbiddenError), (self.inactive, UnauthorizedError)):
+            with self.assertRaises(error):
+                await self.batch({'ids': [1], 'action': 'approve'}, user)
+        request = self.request()
+        request.json = {'ids': [1], 'action': 'approve'}
+        with self.assertRaises(UnauthorizedError):
+            await comments.batch_review_comments(request)
+
+    async def test_batch_rolls_back_if_write_fails_and_rejects_malformed_json(self):
+        before = [(c.id, c.is_approved, c.is_rejected) for c in await Comment.all()]
+        original = QuerySet.update
+
+        async def failing_update(query, **values):
+            await original(query, **values)
+            raise RuntimeError('simulated database failure')
+
+        with patch.object(QuerySet, 'update', failing_update), self.assertRaises(RuntimeError):
+            await self.batch({'ids': list(self.records.values()), 'action': 'approve'})
+        self.assertEqual([(c.id, c.is_approved, c.is_rejected) for c in await Comment.all()], before)
+
+        class Malformed(SimpleNamespace):
+            @property
+            def json(self):
+                raise BadRequest('Failed when parsing body as json')
+
+        request = Malformed(**vars(self.request(self.admin)))
+        with self.assertRaises(ValidationError):
+            await comments.batch_review_comments(request)
 
 
 if __name__ == "__main__":

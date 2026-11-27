@@ -4,7 +4,8 @@ from sanic.exceptions import BadRequest
 from pydantic import ValidationError as PydanticValidationError
 
 from app.core.exceptions import ForbiddenError, UnauthorizedError, ValidationError
-from app.core.response import success
+from app.core.response import fail, success
+from app.core.login_rate_limit import LoginProtectionUnavailable, clear_login_failures, reserve_login
 from app.core.security import create_access_token, verify_password
 from app.middlewares.auth import login_required
 from app.models.user import User
@@ -41,15 +42,28 @@ async def login(request: Request):
     except (PydanticValidationError, BadRequest) as e:
         raise ValidationError("invalid login request") from e
 
+    try:
+        account_key, retry_after = await reserve_login(payload.username, request)
+    except LoginProtectionUnavailable:
+        return fail("login temporarily unavailable, please try again later", code=10503, status=503)
+    if retry_after:
+        response = fail("too many login attempts, please try again later", code=10429, status=429,
+                        data={"retry_after": retry_after})
+        response.headers["Retry-After"] = str(retry_after)
+        return response
+
     user = await User.get_or_none(username=payload.username)
     try:
         valid_password = user is not None and verify_password(payload.password, user.password_hash)
     except ValueError:
         valid_password = False
-    if not valid_password:
+    if not valid_password or not user.is_active:
         raise UnauthorizedError("invalid username or password")
-    if not user.is_active:
-        raise UnauthorizedError("user is inactive")
+
+    try:
+        await clear_login_failures(account_key)
+    except LoginProtectionUnavailable:
+        return fail("login temporarily unavailable, please try again later", code=10503, status=503)
 
     token = create_access_token(user.id, extra_claims={"is_admin": user.is_admin})
     return success(

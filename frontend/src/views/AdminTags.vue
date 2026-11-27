@@ -134,17 +134,18 @@ onMounted(load)
     </div>
     <el-alert v-if="operationError" :title="operationError" type="error" :closable="false" show-icon class="operation-error" />
 
-    <div class="table-panel">
+    <div v-if="loading && !loaded" class="admin-initial-loading" role="status" aria-label="标签加载中"><p>正在读取标签…</p><el-skeleton :rows="4" animated /></div>
+    <div v-else-if="!loadError" class="table-panel">
       <el-table :data="list" v-loading="loading" stripe empty-text="暂无标签，点击“新建标签”添加" class="tag-table">
         <el-table-column prop="name" label="名称" min-width="150" show-overflow-tooltip />
         <el-table-column prop="slug" label="Slug" min-width="150" show-overflow-tooltip />
         <el-table-column label="创建日期" min-width="120">
           <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="160" fixed="right">
+        <el-table-column label="操作" width="150" align="right">
           <template #default="{ row }">
             <el-button size="small" :disabled="!canManage" @click="openEdit(row)">编辑</el-button>
-            <el-button size="small" type="danger" :loading="deletingId === row.id" :disabled="!canManage" @click="remove(row)">删除</el-button>
+            <el-dropdown class="more-action" trigger="click" :disabled="!canManage" @command="remove(row)"><el-button size="small" :loading="deletingId === row.id" :disabled="!canManage" :aria-label="`标签 ${row.name} 的更多操作`">更多</el-button><template #dropdown><el-dropdown-menu><el-dropdown-item command="remove">删除标签</el-dropdown-item></el-dropdown-menu></template></el-dropdown>
           </template>
         </el-table-column>
       </el-table>
@@ -179,6 +180,7 @@ onMounted(load)
 
 <style scoped>
 .tags-admin { min-width: 0; }
+.more-action { margin-left: 6px; }
 .page-heading { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 20px; }
 .page-heading h2 { margin: 0; font-size: 24px; }
 .page-heading p { margin: 8px 0 0; font-size: 13px; line-height: 1.7; color: var(--el-text-color-secondary); }

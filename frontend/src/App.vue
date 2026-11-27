@@ -107,7 +107,7 @@ const onLogout = () => {
         <ThemeSwitcher />
       </div>
     </el-header>
-    <el-main>
+    <el-main class="app-workspace">
       <RouterView />
     </el-main>
     <el-footer class="footer">
@@ -120,13 +120,17 @@ const onLogout = () => {
 <style scoped>
 .layout {
   min-height: 100vh;
+  --el-border-radius-base: 8px;
 }
+.app-workspace { overflow: visible; padding: 28px; }
 .header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid var(--el-border-color-lighter);
   background: var(--app-surface);
+  min-height: 64px;
+  padding: 0 28px;
 }
 .brand a {
   font-size: 20px;
@@ -184,11 +188,12 @@ const onLogout = () => {
   outline-offset: 4px;
 }
 @media (max-width: 640px) {
+  .app-workspace { padding: 16px 12px; }
   .blog-footer-meta { flex-direction: column; align-items: flex-start; gap: 6px; }
   .header { height: auto; min-height: 60px; padding: 14px 16px; gap: 12px; flex-wrap: wrap; }
   .brand { flex-shrink: 0; }
-  .nav { width: 100%; gap: 12px; flex-wrap: wrap; font-size: 13px; }
+  .nav { width: 100%; gap: 8px; flex-wrap: wrap; font-size: 13px; }
   .nav a { white-space: nowrap; }
-  .user { margin-left: auto; }
+  .user { display: none; }
 }
 </style>

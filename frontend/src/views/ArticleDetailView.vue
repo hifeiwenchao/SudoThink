@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, ArrowRight, Clock, Picture, RefreshRight, View } from '@element-plus/icons-vue'
+import { ArrowLeft, ArrowRight, Clock, List, Picture, RefreshRight, View } from '@element-plus/icons-vue'
 import { articleApi, type Article } from '@/api/article'
 import ArticleContent from '@/components/ArticleContent.vue'
 import ArticleComments from '@/components/ArticleComments.vue'
@@ -31,6 +31,8 @@ const coverFailed = ref(false)
 const readingBody = ref<HTMLElement | null>(null)
 const contents = ref<ContentsItem[]>([])
 const activeSection = ref('')
+const mobileContentsOpen = ref(false)
+let selectedHeading: HTMLElement | undefined
 let requestVersion = 0
 let headingElements: HTMLElement[] = []
 let scrollFrame = 0
@@ -46,6 +48,8 @@ const formattedDate = computed(() => {
 })
 
 async function load() {
+  mobileContentsOpen.value = false
+  selectedHeading = undefined
   const version = ++requestVersion
   loading.value = true
   loadError.value = null
@@ -92,7 +96,24 @@ function goToSection(id: string, updateUrl = true) {
   heading.scrollIntoView({ behavior: reduceMotion ? 'instant' : 'smooth', block: 'start' })
   heading.focus({ preventScroll: true })
   activeSection.value = id
-  if (updateUrl && route.hash !== `#${id}`) void router.replace({ hash: `#${id}` })
+  if (updateUrl && route.hash !== `#${id}`) void router.replace({ query: route.query, hash: `#${id}` })
+}
+
+function selectMobileSection(id: string) {
+  selectedHeading = headingElements.find((heading) => heading.id === id)
+  mobileContentsOpen.value = false
+  goToSection(id)
+}
+
+function restoreContentsFocus() {
+  if (!selectedHeading) return
+  selectedHeading.focus({ preventScroll: true })
+  selectedHeading = undefined
+}
+
+function onReadingResize() {
+  if (window.innerWidth > 760) mobileContentsOpen.value = false
+  queueSectionUpdate()
 }
 
 async function buildContents() {
@@ -120,12 +141,12 @@ watch([() => article.value?.content, loading], buildContents, { flush: 'post' })
 
 onMounted(() => {
   window.addEventListener('scroll', queueSectionUpdate, { passive: true })
-  window.addEventListener('resize', queueSectionUpdate, { passive: true })
+  window.addEventListener('resize', onReadingResize, { passive: true })
 })
 onBeforeUnmount(() => {
   requestVersion++
   window.removeEventListener('scroll', queueSectionUpdate)
-  window.removeEventListener('resize', queueSectionUpdate)
+  window.removeEventListener('resize', onReadingResize)
   if (scrollFrame) window.cancelAnimationFrame(scrollFrame)
 })
 </script>
@@ -151,6 +172,12 @@ onBeforeUnmount(() => {
     </section>
 
     <article v-else-if="article" class="reading-article">
+      <button v-if="contents.length" class="mobile-contents-trigger" type="button" aria-controls="mobile-article-contents" :aria-expanded="mobileContentsOpen" @click="mobileContentsOpen = true"><List aria-hidden="true" /><span>目录</span></button>
+      <el-drawer v-model="mobileContentsOpen" class="mobile-contents-drawer" title="本页目录" direction="btt" size="min(70dvh, 560px)" :close-on-press-escape="true" @closed="restoreContentsFocus">
+        <nav id="mobile-article-contents" class="mobile-contents-links" aria-label="手机文章目录">
+          <a v-for="item in contents" :key="item.id" :href="`#${item.id}`" :class="['contents-link', `level-${item.level}`, { active: activeSection === item.id }]" :aria-current="activeSection === item.id ? 'location' : undefined" @click.prevent="selectMobileSection(item.id)">{{ item.text }}</a>
+        </nav>
+      </el-drawer>
       <header class="article-header">
         <div class="article-eyebrow">
           <span class="category-label">{{ article.category?.name || '未分类' }}</span>
@@ -215,7 +242,7 @@ onBeforeUnmount(() => {
 .back-link:hover, .back-link:focus-visible { color: var(--blog-accent); }
 .back-link svg, .article-meta svg, .action-link svg, .retry-button svg { width: 15px; height: 15px; flex-shrink: 0; }
 .path-label { color: var(--blog-muted); font: 10px var(--blog-mono); letter-spacing: .1em; }
-.article-header { max-width: 760px; margin-bottom: 40px; }
+.article-header { max-width: 720px; margin-bottom: 40px; }
 .article-eyebrow { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; color: var(--blog-muted); font: 12px var(--blog-mono); }
 .category-label { color: var(--blog-accent); font-weight: 600; overflow-wrap: anywhere; min-width: 0; }
 .meta-slash { color: var(--blog-border); }
@@ -225,7 +252,7 @@ onBeforeUnmount(() => {
 .article-meta > span { display: inline-flex; align-items: center; gap: 7px; max-width: 100%; overflow-wrap: anywhere; }
 .article-meta .author-meta { gap: 9px; color: var(--blog-text); font-weight: 500; }
 .author-initial { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 1px solid var(--blog-border); border-radius: 7px; background: var(--blog-surface-alt); color: var(--blog-accent); font: 12px var(--blog-mono); }
-.reading-grid { display: grid; grid-template-columns: minmax(0, 760px) minmax(0, 240px); gap: 72px; align-items: start; }
+.reading-grid { display: grid; grid-template-columns: minmax(0, 720px) minmax(0, 240px); gap: 64px; align-items: start; }
 .reading-body { grid-column: 1; grid-row: 1; min-width: 0; }
 .reading-aside { grid-column: 2; grid-row: 1; position: sticky; top: 110px; min-width: 0; }
 .contents-panel { border-top: 1px solid var(--blog-border); }
@@ -244,7 +271,7 @@ onBeforeUnmount(() => {
 .note-dot { margin: 0 5px; }
 .without-contents .reading-note { margin-top: 0; }
 .article-cover { margin: 0 0 38px; overflow: hidden; border: 1px solid var(--blog-border); border-radius: 10px; background: var(--blog-surface-alt); }
-.article-cover img { display: block; width: 100%; max-height: 460px; object-fit: cover; }
+.article-cover img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
 .cover-fallback { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; aspect-ratio: 16 / 7; color: var(--blog-muted); font-size: 12px; background-image: linear-gradient(var(--blog-grid) 1px, transparent 1px), linear-gradient(90deg, var(--blog-grid) 1px, transparent 1px); background-size: 24px 24px; }
 .cover-fallback svg { width: 28px; height: 28px; opacity: .6; }
 .reading-body :deep(.article-prose) { font-size: 16px; line-height: 2; }
@@ -270,6 +297,11 @@ onBeforeUnmount(() => {
 .action-link, .retry-button { display: inline-flex; align-items: center; justify-content: center; gap: 9px; padding: 10px 16px; border: 1px solid var(--blog-border); border-radius: 6px; background: var(--blog-surface-alt); color: var(--blog-accent); font: inherit; font-size: 13px; text-decoration: none; cursor: pointer; }
 .action-link:hover, .retry-button:hover { border-color: var(--blog-accent); }
 .contents-link:focus-visible, .contents-panel summary:focus-visible, .back-link:focus-visible, .action-link:focus-visible, .retry-button:focus-visible { outline: 2px solid var(--blog-accent); outline-offset: 4px; }
+.mobile-contents-trigger { display: none; }
+.mobile-contents-links { display: flex; flex-direction: column; padding: 4px; }
+:deep(.mobile-contents-drawer) { color: var(--blog-text); background: var(--blog-surface); border-radius: 16px 16px 0 0; }
+:deep(.mobile-contents-drawer .el-drawer__header) { margin-bottom: 0; padding: 20px 24px 16px; border-bottom: 1px solid var(--blog-border); color: var(--blog-text); }
+:deep(.mobile-contents-drawer .el-drawer__body) { overscroll-behavior: contain; padding: 16px 20px max(20px, env(safe-area-inset-bottom)); }
 @media (max-width: 1000px) {
   .reading-grid { grid-template-columns: minmax(0, 1fr) 200px; gap: 36px; }
   .article-header { max-width: calc(100% - 236px); }
@@ -284,7 +316,10 @@ onBeforeUnmount(() => {
   .article-summary { font-size: 15px; }
   .article-meta { column-gap: 16px; margin-top: 23px; padding-bottom: 24px; font-size: 11px; }
   .reading-grid { display: flex; flex-direction: column; gap: 28px; }
-  .reading-aside { position: static; width: 100%; }
+  .reading-aside { display: none; }
+  .mobile-contents-trigger { display: flex; position: fixed; z-index: 44; right: calc(80px + env(safe-area-inset-right)); bottom: calc(12px + env(safe-area-inset-bottom)); flex-direction: column; align-items: center; justify-content: center; gap: 3px; width: 52px; min-height: 60px; border: 1px solid var(--blog-border); border-radius: 10px; background: var(--blog-surface); color: var(--blog-muted); box-shadow: 0 4px 18px rgb(0 0 0 / .08); font: inherit; font-size: 11px; cursor: pointer; }
+  .mobile-contents-trigger svg { width: 19px; height: 19px; }
+  .mobile-contents-trigger:hover { color: var(--blog-accent); border-color: var(--blog-accent); }
   .reading-body { width: 100%; }
   .contents-panel { padding: 0 16px; border: 1px solid var(--blog-border); border-radius: 7px; background: var(--blog-surface); }
   .contents-panel summary { padding: 14px 0; }

@@ -63,7 +63,7 @@ onBeforeUnmount(() => { requestId++ })
 <template>
   <div>
     <div class="page-heading">
-      <h2>文章管理</h2>
+      <div><h2>文章管理</h2><p class="admin-description">管理已发布内容和草稿，移入回收站的文章可随时恢复。</p></div>
       <el-button type="primary" @click="$router.push('/articles/new')">新建文章</el-button>
     </div>
 
@@ -85,12 +85,14 @@ onBeforeUnmount(() => { requestId++ })
       <el-radio-button value="trash">回收站</el-radio-button>
     </el-radio-group>
     <p v-if="status === 'trash'">回收站保留文章内容及评论，恢复后沿用原发布状态。</p>
-    <div v-if="loadError" role="alert"><p>文章列表加载失败，请稍后重试。</p><el-button @click="load">重新加载</el-button></div>
-    <el-table v-else :data="list" v-loading="loading" stripe>
-      <el-table-column prop="id" label="ID" width="60" />
-      <el-table-column prop="title" label="标题" min-width="200" />
-      <el-table-column label="作者" width="120">
-        <template #default="{ row }">{{ row.author.username }}</template>
+    <div v-if="loadError" class="admin-feedback" role="alert"><span>文章列表加载失败，请稍后重试。</span><el-button @click="load">重新加载</el-button></div>
+    <div v-else-if="loading && !list.length" class="admin-initial-loading" role="status" aria-label="文章加载中"><p>正在读取文章…</p><el-skeleton :rows="5" animated /></div>
+    <el-empty v-else-if="!list.length" :description="query ? '没有找到匹配的文章，试试其他关键词' : status === 'trash' ? '回收站为空' : '这里还没有文章，开始记录一个想法吧'">
+      <el-button v-if="status !== 'trash' && !query" type="primary" @click="$router.push('/articles/new')">创作第一篇文章</el-button>
+    </el-empty>
+    <el-table v-else :data="list" v-loading="loading" row-key="id">
+      <el-table-column label="文章" min-width="220">
+        <template #default="{ row }"><strong class="article-title">{{ row.title }}</strong><p class="article-meta">{{ row.author.username }} · #{{ row.id }}</p></template>
       </el-table-column>
       <el-table-column label="状态" width="80">
         <template #default="{ row }">
@@ -100,12 +102,13 @@ onBeforeUnmount(() => { requestId++ })
         </template>
       </el-table-column>
       <el-table-column prop="view_count" label="阅读" width="80" />
-      <el-table-column label="操作" width="240">
+      <el-table-column label="操作" width="154" align="right">
         <template #default="{ row }">
           <el-button v-if="status !== 'trash'" size="small" :disabled="actingId !== null" @click="$router.push(`/articles/${row.id}/edit`)">编辑</el-button>
-          <el-button v-if="status !== 'trash'" size="small" type="danger" :loading="actingId === row.id" :disabled="actingId !== null" @click="handleRemove(row.id)">
-            移至回收站
-          </el-button>
+          <el-dropdown v-if="status !== 'trash'" :disabled="actingId !== null" trigger="click" @command="handleRemove(row.id)">
+            <el-button class="more-action" size="small" :loading="actingId === row.id" :disabled="actingId !== null" :aria-label="`文章 ${row.title} 的更多操作`">更多</el-button>
+            <template #dropdown><el-dropdown-menu><el-dropdown-item command="trash">移至回收站</el-dropdown-item></el-dropdown-menu></template>
+          </el-dropdown>
           <el-button v-if="status === 'trash'" size="small" type="primary" :loading="actingId === row.id" :disabled="actingId !== null" @click="handleRestore(row.id)">恢复</el-button>
         </template>
       </el-table-column>
@@ -132,6 +135,9 @@ onBeforeUnmount(() => { requestId++ })
   margin-bottom: 12px;
 }
 .page-heading h2 { margin: 0; }
+.article-title { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.article-meta { margin: 5px 0 0; font-size: 12px; color: var(--el-text-color-secondary); }
+.more-action { margin-left: 6px; }
 .pagination {
   margin-top: 16px;
   justify-content: center;

@@ -12,6 +12,7 @@ import type { TodoForm } from './todos'
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://admin.example.com/', pretendToBeVisual: true })
 Object.assign(globalThis, {
   window: dom.window, document: dom.window.document, Document: dom.window.Document,
+  history: dom.window.history,
   Element: dom.window.Element, HTMLElement: dom.window.HTMLElement, SVGElement: dom.window.SVGElement,
   HTMLInputElement: dom.window.HTMLInputElement, HTMLTextAreaElement: dom.window.HTMLTextAreaElement,
   HTMLButtonElement: dom.window.HTMLButtonElement, HTMLSelectElement: dom.window.HTMLSelectElement,
@@ -21,7 +22,8 @@ Object.assign(globalThis, {
   requestAnimationFrame: dom.window.requestAnimationFrame, cancelAnimationFrame: dom.window.cancelAnimationFrame,
   ResizeObserver: class { observe() {} unobserve() {} disconnect() {} },
 })
-const { createApp, nextTick } = await import('vue')
+const { createApp, nextTick, computed } = await import('vue')
+const { createMemoryHistory, createRouter, matchedRouteKey } = await import('vue-router')
 const { default: ElementPlus, ElMessage } = await import('element-plus')
 const folder = mkdtempSync(fileURLToPath(new URL('../../node_modules/.admin-todos-test-', import.meta.url)))
 after(() => { ElMessage.closeAll(); rmSync(folder, { recursive: true, force: true }); dom.window.close() })
@@ -53,12 +55,40 @@ const todo = (): Todo => ({
   reminder_attempts: 0, reminder_error: '', created_at: '2026-11-17T00:00:00Z', updated_at: '2026-11-17T00:00:00Z',
 })
 type State = {
+  now: number
   form: TodoForm; list: Todo[]; dialogVisible: boolean; saveError: string; loading: boolean; canManage: boolean
   openCreate(): void; openEdit(item: Todo): void; load(): Promise<void>; save(): Promise<void>; toggleCompletion(item: Todo): Promise<void>
   configureCron(): void; fetchCronPreview(): Promise<boolean>; cronPreview: TodoCronPreview | null; previewError: string
   builder: { preset: string; time: string; weekdays: number[]; day: number; month: number; interval: number }
   applyCronBuilder(): void
+  requestEditorClose(): Promise<void>; beforeEditorClose(done: () => void): Promise<void>; confirmEditorLeave(): Promise<boolean>
 }
+
+test('todo groups use each execution timezone and handle disabled and invalid schedules safely', async t => {
+  const item = (id: number, date: string, timezone = 'Asia/Shanghai'): Todo => ({ ...todo(), id, title: `事项 ${id}`, due_at: date, reminder_next_run_at: date, reminder_timezone: timezone })
+  const view = await mount({ items: [
+    item(1, '2026-11-26T16:00:00Z'),
+    item(2, '2026-11-27T02:00:00Z'),
+    item(3, '2026-11-27T08:30:00Z', 'America/Los_Angeles'),
+    item(4, '2026-11-28T02:00:00Z'),
+    { ...item(5, '2020-01-01T00:00:00Z'), reminder_enabled: false },
+    { ...item(6, '2020-01-01T00:00:00Z'), is_completed: true },
+    item(7, 'invalid'),
+    item(8, '2026-11-27T02:00:00Z', 'invalid'),
+  ] })
+  t.after(view.unmount)
+  view.state.now = Date.parse('2026-11-26T16:30:00Z')
+  await settle()
+  const titles = (group: string) => [...view.container.querySelectorAll(`[data-group="${group}"] .todo-title`)].map(item => item.textContent)
+  assert.deepEqual(titles('overdue'), ['事项 1'])
+  assert.deepEqual(titles('today'), ['事项 2'])
+  assert.deepEqual(titles('upcoming'), ['事项 3', '事项 4'])
+  assert.deepEqual(titles('unscheduled'), ['事项 5', '事项 7', '事项 8'])
+  assert.deepEqual(titles('completed'), ['事项 6'])
+  assert.equal(view.container.querySelectorAll('.overdue-label').length, 1)
+  assert.ok(view.container.textContent?.includes('时间无效'))
+  assert.equal(view.container.querySelector('.el-table'), null)
+})
 async function settle() { await flushPromises(); await nextTick(); await flushPromises(); await nextTick() }
 async function mount(options: {
   items?: Todo[]; list?: () => Promise<TodoPage>; create?: (input: TodoInput) => Promise<Todo>
@@ -110,9 +140,15 @@ async function mount(options: {
   document.body.append(container)
   const app = createApp(AdminTodos)
   app.use(ElementPlus)
+  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: AdminTodos }, { path: '/other', component: { template: '<div>其他页面</div>' } }] })
+  app.use(router)
+  await router.push('/')
+  await router.isReady()
+  app.provide(matchedRouteKey, computed(() => router.currentRoute.value.matched[0]))
   const instance = app.mount(container) as unknown as { $: { setupState: State } }
   await settle()
-  return { container, state: instance.$.setupState, saves, updates, completions, skipPreviews, skips, requests, unmount: () => { app.unmount(); container.remove() } }
+  let unmounted = false
+  return { container, state: instance.$.setupState, router, saves, updates, completions, skipPreviews, skips, requests, unmount: () => { if (unmounted) return; unmounted = true; app.unmount(); container.remove() } }
 }
 
 const monthlyTodo = (): Todo => ({ ...todo(), reminder_repeat: 'cron', reminder_cron: '0 9 1,2,3 * *' })
@@ -124,6 +160,140 @@ function button(root: ParentNode, text: string) {
   assert.ok(found, `应显示“${text}”按钮`)
   return found
 }
+
+test('dirty cancel and repeated close attempts confirm once and preserve input when cancelled', async t => {
+  const view = await mount()
+  t.after(view.unmount)
+  view.state.openCreate()
+  await settle()
+  const input = document.body.querySelector<HTMLInputElement>('input[aria-label="待办标题"]') ?? document.body.querySelector<HTMLInputElement>('.el-dialog input')
+  assert.ok(input)
+  input.value = '保留这份输入'
+  input.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+  await settle()
+  const closing = view.state.requestEditorClose()
+  void view.state.requestEditorClose()
+  await settle()
+  assert.equal(document.body.querySelectorAll('.el-message-box').length, 1)
+  button(document.body.querySelector('.el-message-box')!, '继续编辑').click()
+  await closing
+  assert.equal(view.state.dialogVisible, true)
+  assert.equal(view.state.form.title, '保留这份输入')
+  const discard = view.state.requestEditorClose()
+  await settle()
+  button([...document.body.querySelectorAll('.el-message-box')].at(-1)!, '放弃修改').click()
+  await discard
+  assert.equal(view.state.dialogVisible, false)
+  view.state.openCreate()
+  assert.equal(view.state.form.title, '')
+})
+
+test('clean editor closes without confirmation and before-close shares the dirty guard', async t => {
+  const view = await mount()
+  t.after(view.unmount)
+  view.state.openEdit(view.state.list[0]!)
+  await view.state.requestEditorClose()
+  assert.equal(view.state.dialogVisible, false)
+  view.state.openEdit(view.state.list[0]!)
+  view.state.form.content = '新的内容'
+  let closed = false
+  const closing = view.state.beforeEditorClose(() => { closed = true })
+  await settle()
+  button([...document.body.querySelectorAll('.el-message-box')].at(-1)!, '继续编辑').click()
+  await closing
+  assert.equal(closed, false)
+  assert.equal(view.state.dialogVisible, true)
+})
+
+test('mobile todos put secondary actions and technical reminder context inside details', async t => {
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
+  const view = await mount({ items: [monthlyTodo()] })
+  t.after(() => { view.unmount(); Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 }) })
+  const card = view.container.querySelector('.todo-card')
+  assert.ok(card)
+  assert.equal(view.container.querySelector('.el-table'), null)
+  assert.equal(card.querySelector('details')?.open, false)
+  assert.ok(card.querySelector('details')?.textContent?.includes('提醒历史'))
+  assert.ok(card.querySelector('details')?.textContent?.includes('Asia/Shanghai'))
+  assert.ok(card.textContent?.includes('证书续期'))
+})
+
+test('route leave uses the editor guard and saving blocks close without a confirmation', async t => {
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const view = await mount({ create: async input => { await gate; return { ...todo(), ...input, id: 2 } } })
+  t.after(view.unmount)
+  view.state.openCreate()
+  view.state.form.title = '未保存的待办'
+  const leaving = view.router.push('/other')
+  await settle()
+  button([...document.body.querySelectorAll('.el-message-box')].at(-1)!, '继续编辑').click()
+  await leaving
+  assert.equal(view.router.currentRoute.value.path, '/')
+  const saving = view.state.save()
+  await settle()
+  assert.equal(await view.state.confirmEditorLeave(), false)
+  await view.state.requestEditorClose()
+  assert.equal(view.state.dialogVisible, true)
+  release()
+  await saving
+  assert.equal(view.state.dialogVisible, false)
+  assert.equal(await view.state.confirmEditorLeave(), true)
+  await view.router.push('/other')
+  assert.equal(view.router.currentRoute.value.path, '/other')
+})
+
+test('actual dialog cancel, overlay and Escape all protect dirty input', async t => {
+  const view = await mount()
+  t.after(view.unmount)
+  view.state.openCreate()
+  view.state.form.title = '不能丢失'
+  await settle()
+  await waitForValidation(250)
+  const editor = [...document.body.querySelectorAll<HTMLElement>('.el-dialog')].find(item => item.textContent?.includes('新建待办'))!
+  button(editor, '取消').click()
+  await settle()
+  button([...document.body.querySelectorAll('.el-message-box')].at(-1)!, '继续编辑').click()
+  await settle()
+  await waitForValidation(250)
+  const overlay = editor.closest('.el-overlay-dialog')!
+  for (const event of ['mousedown', 'mouseup', 'click']) overlay.dispatchEvent(new dom.window.MouseEvent(event, { bubbles: true }))
+  await settle()
+  assert.equal(document.body.querySelectorAll('.el-message-box').length, 1)
+  button(document.body.querySelector('.el-message-box')!, '继续编辑').click()
+  await settle()
+  await waitForValidation(250)
+  document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }))
+  await settle()
+  assert.equal(document.body.querySelectorAll('.el-message-box').length, 1)
+  button(document.body.querySelector('.el-message-box')!, '继续编辑').click()
+  await settle()
+  assert.equal(view.state.dialogVisible, true)
+  assert.equal(view.state.form.title, '不能丢失')
+})
+
+test('browser unload guards dirty input and in-flight saving, and removes the guard on unmount', async t => {
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const view = await mount({ create: async input => { await gate; return { ...todo(), ...input, id: 2 } } })
+  t.after(view.unmount)
+  const unload = () => { const event = new dom.window.Event('beforeunload', { cancelable: true }); window.dispatchEvent(event); return event.defaultPrevented }
+  assert.equal(unload(), false)
+  view.state.openCreate()
+  assert.equal(unload(), false)
+  view.state.form.title = '尚未保存'
+  assert.equal(unload(), true)
+  const saving = view.state.save()
+  await settle()
+  assert.equal(unload(), true)
+  release()
+  await saving
+  assert.equal(unload(), false)
+  view.state.openCreate()
+  view.state.form.title = '卸载测试'
+  view.unmount()
+  assert.equal(unload(), false)
+})
 function skipDialog() {
   const dialog = document.body.querySelector<HTMLElement>('.skip-period-dialog')
   assert.ok(dialog, '应打开本周期不再提醒对话框')

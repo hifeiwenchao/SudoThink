@@ -1,3 +1,4 @@
+import { imageDimensions } from './editorImage'
 export type UploadKind = 'image' | 'video' | 'audio'
 
 export interface UploadConfig {
@@ -28,6 +29,8 @@ export interface UploadedMedia {
   url: string
   key: string
   kind: UploadKind
+  width?: number
+  height?: number
 }
 
 interface UploadOptions {
@@ -123,6 +126,8 @@ export async function uploadMedia(file: File, options: UploadOptions): Promise<U
     try { request.send(form) } catch { finish(new Error('文件上传失败，请检查上传服务地址后重试')) }
   })
   if (signal?.aborted) throw cancelled()
+  const dimensions = kind === 'image' ? await imageDimensions(file) : {}
+  if (signal?.aborted) throw cancelled()
   onProgress?.(100)
-  return { url: policy.public_url, key: policy.key, kind }
+  return { url: policy.public_url, key: policy.key, kind, ...dimensions }
 }
