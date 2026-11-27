@@ -1,13 +1,14 @@
 import http from './http'
+import type { ContactFields } from '@/utils/aboutContacts'
 
-export interface About {
+export interface About extends ContactFields {
   id: number
   title: string
   content: string
   updated_at: string | null
 }
 
-export interface AboutInput {
+export interface AboutInput extends ContactFields {
   title: string
   content: string
 }

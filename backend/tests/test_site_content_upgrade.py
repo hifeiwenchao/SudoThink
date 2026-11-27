@@ -20,6 +20,10 @@ class MySQLMetadata:
             "reminder_email", "reminder_repeat", "reminder_timezone", "reminder_next_run_at", "reminder_cron",
         )} if upgraded else {}
         self.todo_records = []
+        self.about_columns = {name: {"COLUMN_NAME": name} for name in (
+            "github_url", "email", "x_url", "facebook_url", "instagram_url",
+        )} if upgraded else {}
+        self.about_records = [{"id": 1, "title": "Author", "content": "Existing biography"}]
         if upgraded:
             self.columns.update({name: {"COLUMN_NAME": name, "IS_NULLABLE": "NO", "COLUMN_TYPE": "varchar"} for name in ("nickname", "email", "ip_address", "location", "is_rejected", "user_agent")})
         self.foreign_keys = [{"CONSTRAINT_NAME": "legacy_comment_author_fk", "REFERENCED_TABLE_NAME": "users", "REFERENCED_COLUMN_NAME": "id", "DELETE_RULE": "SET NULL" if upgraded else "CASCADE", "UPDATE_RULE": "RESTRICT"}]
@@ -39,6 +43,8 @@ class MySQLMetadata:
         return (0, [])
 
     async def execute_query_dict(self, sql):
+        if "TABLE_NAME = 'about_pages'" in sql:
+            return list(self.about_columns.values())
         if "TABLE_NAME = 'articles'" in sql:
             exists = self.article_deleted_at_index if "STATISTICS" in sql else self.article_deleted_at
             return [{"COLUMN_NAME": "deleted_at"}] if exists else []
@@ -54,6 +60,13 @@ class MySQLMetadata:
 
     async def execute_script(self, sql):
         self.scripts.append(sql)
+        if "`about_pages`" in sql:
+            for name in ("github_url", "email", "x_url", "facebook_url", "instagram_url"):
+                if f"ADD COLUMN `{name}`" in sql:
+                    self.about_columns[name] = {"COLUMN_NAME": name}
+                    for record in self.about_records:
+                        record[name] = ""
+            return
         if "`articles`" in sql:
             if "ADD COLUMN" in sql:
                 self.article_deleted_at = True
@@ -107,7 +120,7 @@ class SiteContentUpgradeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(connection.columns["author_id"]["IS_NULLABLE"], "YES")
         self.assertEqual(connection.foreign_keys[0]["DELETE_RULE"], "SET NULL")
         self.assertEqual(connection.records, [{"id": 7, "author_id": 13, "content": "Existing comment", "is_rejected": False, "user_agent": ""}])
-        self.assertEqual(len(connection.scripts), 4)
+        self.assertEqual(len(connection.scripts), 5)
         comment_sql = connection.scripts[1]
         self.assertIn("DROP FOREIGN KEY `legacy_comment_author_fk`", comment_sql)
         self.assertNotIn("ADD CONSTRAINT `legacy_comment_author_fk`", comment_sql)
@@ -117,7 +130,27 @@ class SiteContentUpgradeTests(unittest.IsolatedAsyncioTestCase):
         for unsafe in ("DROP TABLE", "DELETE FROM", "TRUNCATE", "UPDATE `"):
             self.assertNotIn(unsafe, comment_sql.upper())
         await self.upgrade_with(connection)
-        self.assertEqual(len(connection.scripts), 4)
+        self.assertEqual(len(connection.scripts), 5)
+
+    async def test_about_contacts_upgrade_preserves_biography_and_is_idempotent(self):
+        connection = MySQLMetadata(upgraded=True)
+        connection.about_columns = {"github_url": {"COLUMN_NAME": "github_url"}}
+        connection.about_records[0]["github_url"] = "https://github.com/saved"
+        await self.upgrade_with(connection)
+        self.assertEqual(len(connection.scripts), 1)
+        sql = connection.scripts[0]
+        self.assertIn("ALTER TABLE `about_pages`", sql)
+        self.assertIn("ADD COLUMN `email` VARCHAR(254) NOT NULL DEFAULT ''", sql)
+        self.assertNotIn("ADD COLUMN `github_url`", sql)
+        for name in ("x_url", "facebook_url", "instagram_url"):
+            self.assertIn(f"ADD COLUMN `{name}` VARCHAR(512) NOT NULL DEFAULT ''", sql)
+        self.assertEqual(connection.about_records, [{
+            "id": 1, "title": "Author", "content": "Existing biography",
+            "github_url": "https://github.com/saved", "email": "", "x_url": "",
+            "facebook_url": "", "instagram_url": "",
+        }])
+        await self.upgrade_with(connection)
+        self.assertEqual(len(connection.scripts), 1)
 
     async def test_partially_upgraded_table_only_receives_missing_columns(self):
         connection = MySQLMetadata(upgraded=True)

@@ -31,5 +31,5 @@ async def update_about_admin(request: Request):
         payload = AboutIn(**request.json)
     except PydanticValidationError as exc:
         raise ValidationError(str(exc)) from exc
-    page, _ = await AboutPage.update_or_create(id=1, defaults=payload.model_dump())
+    page, _ = await AboutPage.update_or_create(id=1, defaults=payload.model_dump(exclude_unset=True))
     return success(_about_dict(page), message="updated")

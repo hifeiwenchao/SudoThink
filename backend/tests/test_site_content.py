@@ -177,6 +177,7 @@ class SiteContentTests(unittest.IsolatedAsyncioTestCase):
         response = await self.about_handler("get_about")(self.request())
         self.assertEqual(self.data(response), {
             "id": 1, "title": "关于我", "content": "", "updated_at": None,
+            "github_url": "", "email": "", "x_url": "", "facebook_url": "", "instagram_url": "",
         })
         from app.models.about import AboutPage
         self.assertEqual(await AboutPage.all().count(), 0)
@@ -204,6 +205,51 @@ class SiteContentTests(unittest.IsolatedAsyncioTestCase):
             for user, error in ((None, UnauthorizedError), (self.reader, ForbiddenError)):
                 with self.subTest(handler=name, user=user), self.assertRaises(error):
                     await handler(self.request(user, {"title": "Valid", "content": "Body"}))
+
+    async def test_about_contacts_persist_preserve_omitted_and_clear_explicit_blanks(self):
+        save = self.about_handler("update_about_admin", admin=True)
+        contacts = {
+            "github_url": "https://github.com/author", "email": "author@example.com",
+            "x_url": "https://x.com/author", "facebook_url": "https://facebook.com/author",
+            "instagram_url": "https://instagram.com/author",
+        }
+        self.data(await save(self.request(self.admin, {
+            "title": "Author", "content": "Bio", **{key: f"  {value}  " for key, value in contacts.items()},
+        })))
+        public_read = self.about_handler("get_about")
+        saved = self.data(await public_read(self.request()))
+        self.assertEqual({key: saved[key] for key in contacts}, contacts)
+        from app.models.about import AboutPage
+        persisted = await AboutPage.get(id=1)
+        self.assertEqual({key: getattr(persisted, key) for key in contacts}, contacts)
+        await save(self.request(self.admin, {"title": "Changed", "content": "New bio"}))
+        preserved = self.data(await public_read(self.request()))
+        self.assertEqual({key: preserved[key] for key in contacts}, contacts)
+        await save(self.request(self.admin, {
+            "title": "Changed", "content": "New bio", **dict.fromkeys(contacts, "  "),
+        }))
+        cleared = self.data(await public_read(self.request()))
+        self.assertEqual({key: cleared[key] for key in contacts}, dict.fromkeys(contacts, ""))
+
+    async def test_about_rejects_invalid_contacts_without_modifying_saved_content(self):
+        save = self.about_handler("update_about_admin", admin=True)
+        await save(self.request(self.admin, {"title": "Saved", "content": "Bio", "github_url": "https://github.com/author"}))
+        invalid_urls = (
+            "javascript:alert(1)", "ftp://example.com", "//example.com", "https://",
+            "https://user:password@example.com", "https://@example.com", "https://example.com/a\\b",
+            "https://example.com/a\nb", "https://example.com/a\x00b", "https://example.com/a b",
+            "https://example.com:65536", "https://%00example.com", "https://example.com/" + "a" * 512,
+            None, 123,
+        )
+        for field in ("github_url", "x_url", "facebook_url", "instagram_url"):
+            for value in invalid_urls:
+                with self.subTest(field=field, value=value), self.assertRaises(ValidationError):
+                    await save(self.request(self.admin, {"title": "Overwrite", "content": "Oops", field: value}))
+        for email in ("not-an-email", "mailto:author@example.com", "author@example.com\r\nBcc:other@example.com", None, 123, "a" * 255 + "@example.com"):
+            with self.subTest(email=email), self.assertRaises(ValidationError):
+                await save(self.request(self.admin, {"title": "Overwrite", "content": "Oops", "email": email}))
+        saved = self.data(await self.about_handler("get_about")(self.request()))
+        self.assertEqual((saved["title"], saved["content"], saved["github_url"]), ("Saved", "Bio", "https://github.com/author"))
 
     async def test_about_rejects_invalid_content_without_overwriting_saved_page(self):
         save = self.about_handler("update_about_admin", admin=True)

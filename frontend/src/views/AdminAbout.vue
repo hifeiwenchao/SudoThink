@@ -6,8 +6,10 @@ import { aboutApi, type About } from '@/api/about'
 import RichTextEditor from '@/components/RichTextEditor.vue'
 import ArticleContent from '@/components/ArticleContent.vue'
 import { getArticleText, hasArticleContent, toArticleHtml } from '@/utils/articleContent'
+import { contactFields, isContactEmail, isContactUrl } from '@/utils/aboutContacts'
 
-const form = reactive({ title: '关于我', content: '' })
+const form = reactive({ title: '关于我', content: '', github_url: '', email: '', x_url: '', facebook_url: '', instagram_url: '' })
+const contactErrors = reactive<Record<string, string>>({})
 const loading = ref(false)
 const loaded = ref(false)
 const saving = ref(false)
@@ -41,6 +43,7 @@ let active = true
 function fill(data: About) {
   form.title = data.title
   form.content = toArticleHtml(data.content)
+  for (const field of contactFields) form[field.key] = data[field.key] || ''
   updatedAt.value = data.updated_at
   savedSnapshot.value = snapshot()
 }
@@ -69,10 +72,20 @@ async function save() {
     titleError.value = !title ? '请填写页面标题' : '标题不能超过 120 个字符'
     return
   }
+  let invalidContact = false
+  for (const field of contactFields) {
+    const value = form[field.key].trim()
+    contactErrors[field.key] = value && !(field.key === 'email' ? isContactEmail(value) : isContactUrl(value))
+      ? field.key === 'email' ? '请填写有效邮箱地址' : '请填写完整的 http:// 或 https:// 链接（不含账号密码）'
+      : ''
+    if (contactErrors[field.key]) invalidContact = true
+  }
+  if (invalidContact) return
   saving.value = true
   saveError.value = ''
   try {
-    const data = await aboutApi.save({ title, content: hasContent.value ? toArticleHtml(form.content) : '' })
+    const contacts = Object.fromEntries(contactFields.map(field => [field.key, form[field.key].trim()]))
+    const data = await aboutApi.save({ title, content: hasContent.value ? toArticleHtml(form.content) : '', ...contacts })
     if (!active) return
     fill(data)
     ElMessage.success('关于我已保存')
@@ -138,6 +151,15 @@ onMounted(load)
           <el-input id="about-title" v-model="form.title" maxlength="120" show-word-limit placeholder="关于我" @input="titleError = ''" />
         </el-form-item>
       </el-form>
+      <section class="contact-settings" aria-labelledby="contact-heading">
+        <h3 id="contact-heading">联系方式</h3>
+        <p class="field-hint">保存后会公开显示在博客侧边栏；留空则隐藏对应入口。邮箱将对所有访客可见。</p>
+        <el-form label-position="top" :disabled="!editable" @submit.prevent="save">
+          <el-form-item v-for="field in contactFields" :key="field.key" :label="field.label" :error="contactErrors[field.key]">
+            <el-input :id="`about-${field.key}`" v-model="form[field.key]" :placeholder="field.placeholder" :maxlength="field.key === 'email' ? 254 : 512" @input="contactErrors[field.key] = ''" />
+          </el-form-item>
+        </el-form>
+      </section>
       <div class="body-heading">
         <span>自我介绍</span>
         <span class="field-hint">保存后会显示在公开博客，留空表示暂未填写。</span>
@@ -171,7 +193,13 @@ onMounted(load)
 .about-preview { max-width: 740px; padding: 12px 20px 30px; margin: 0 auto; overflow-wrap: anywhere; }
 .about-preview h1 { color: var(--app-heading); font-size: 30px; margin: 0 0 28px; line-height: 1.5; }
 .empty-preview { color: var(--el-text-color-secondary); }
+.contact-settings { padding: 20px 28px 8px; border-top: 1px solid var(--el-border-color-lighter); }
+.contact-settings h3 { margin: 0 0 8px; font-size: 16px; }
+.contact-settings > p { margin: 0 0 20px; line-height: 1.6; }
+.contact-settings .el-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 20px; }
 @media (max-width: 640px) {
+  .contact-settings { padding: 20px 18px 8px; }
+  .contact-settings .el-form { grid-template-columns: 1fr; }
   .title-field { padding: 20px 18px 0; }
   .body-heading { padding: 0 18px 14px; }
   .writing-footer { padding: 14px 18px; }

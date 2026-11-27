@@ -17,6 +17,8 @@ const transpile = (source: string) => ts.transpileModule(source, { compilerOptio
 const { descriptor } = parse(readFileSync(new URL('../views/HomeView.vue', import.meta.url), 'utf8'))
 const script = compileScript(descriptor, { id: 'home-test' })
 let source = script.content.replace("import { storeToRefs } from 'pinia'", 'const storeToRefs = (store) => store')
+  .replace(/import .* from '@\/api\/about'/, 'const aboutApi = { get: () => globalThis.__homeContacts() }')
+  .replace("import ContactLinks from '@/components/ContactLinks.vue'", 'const ContactLinks = { props: ["contacts"], template: \'<a v-if="contacts.github_url" :href="contacts.github_url">GitHub</a>\' }')
   .replace(/import .* from '@\/api\/article'/, 'const articleApi = { list: (...args) => globalThis.__homeList(...args) }')
   .replace(/import .* from '@\/api\/taxonomy'/, 'const taxonomyApi = { tags: async () => [] }')
   .replace("import { useTaxonomyStore } from '@/stores/taxonomy'", 'const useTaxonomyStore = () => globalThis.__homeTaxonomy')
@@ -27,9 +29,28 @@ writeFileSync(`${folder}/template.mjs`, transpile(template.code))
 const Component = (await import(pathToFileURL(`${folder}/component.mjs`).href)).default
 Component.render = (await import(pathToFileURL(`${folder}/template.mjs`).href)).render
 async function settle() { await flush(); await nextTick(); await flush(); await nextTick() }
+test('unavailable contact settings do not interrupt the article archive', async () => {
+  Object.assign(globalThis, {
+    __homeContacts: async () => { throw new Error('offline') },
+    __homeList: async () => ({ items: [], total: 0 }),
+    __homeTaxonomy: { categories: ref([]), loaded: true },
+  })
+  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', name: 'home', component: Component }] })
+  await router.push('/'); await router.isReady()
+  const container = document.createElement('div')
+  const app = createApp(Component); app.use(router); app.use(ElementPlus)
+  const vm = app.mount(container) as any
+  try {
+    await settle()
+    assert.equal(vm.$.setupState.hasLoaded, true)
+    assert.equal(vm.$.setupState.loadError, false)
+    assert.equal(container.querySelector('a[href="https://github.com/example"]'), null)
+    assert.match(container.textContent || '', /最近的文字/)
+  } finally { app.unmount() }
+})
 test('homepage URL restores and normalizes filters, search resets page, and browser back restores them', async () => {
   const requests: any[] = []
-  Object.assign(globalThis, { __homeList: async (params: any) => { requests.push(params); return { items: [], total: 0 } }, __homeTaxonomy: { categories: ref([]), loaded: true } })
+  Object.assign(globalThis, { __homeContacts: async () => ({ github_url: 'https://github.com/example' }), __homeList: async (params: any) => { requests.push(params); return { items: [], total: 0 } }, __homeTaxonomy: { categories: ref([]), loaded: true } })
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', name: 'home', component: Component }, { path: '/articles/:id', component: { template: '<p>article</p>' } }] })
   await router.push('/?q=%20vue%20&category=2&tag=3&page=4&unknown=bad'); await router.isReady()
   const container = document.createElement('div'); document.body.append(container)
@@ -37,6 +58,7 @@ test('homepage URL restores and normalizes filters, search resets page, and brow
   const vm = app.mount(container) as any
   try {
     await settle()
+    assert.equal(container.querySelector('a[href="https://github.com/example"]')?.textContent, 'GitHub')
     assert.equal(router.currentRoute.value.query.q, 'vue'); assert.equal(router.currentRoute.value.query.unknown, undefined)
     assert.deepEqual(requests.at(-1), { page: 4, size: 10, q: 'vue', category_id: 2, tag_id: 3 })
     const input = container.querySelector('input[type=search]') as HTMLInputElement

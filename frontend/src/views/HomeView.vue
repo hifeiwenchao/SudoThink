@@ -6,6 +6,8 @@ import { ArrowRight, Refresh, Search, View } from '@element-plus/icons-vue'
 import { articleApi, type ArticleListItem } from '@/api/article'
 import { taxonomyApi, type TaxonomyItem } from '@/api/taxonomy'
 import { useTaxonomyStore } from '@/stores/taxonomy'
+import { aboutApi, type About } from '@/api/about'
+import ContactLinks from '@/components/ContactLinks.vue'
 import { articleQuery, parseArticleQuery, type ArticleQuery } from '@/utils/publicNavigation'
 
 const route = useRoute()
@@ -30,6 +32,17 @@ const taxonomyLoading = ref(false)
 const taxonomyError = ref(false)
 const failedCovers = ref(new Set<string>())
 let requestId = 0
+const contactSettings = ref<About | null>(null)
+let active = true
+
+async function loadContacts() {
+  try {
+    const data = await aboutApi.get()
+    if (active) contactSettings.value = data
+  } catch {
+    // Optional profile links must not interrupt the article archive.
+  }
+}
 
 const hasFilters = computed(() => Boolean(searchQuery.value || categoryId.value || tagId.value))
 const selectedCategory = computed(() => categories.value.find((item) => item.id === categoryId.value))
@@ -94,7 +107,7 @@ function showCover(article: ArticleListItem) {
   return article.cover && !failedCovers.value.has(article.cover)
 }
 
-onMounted(() => { void loadTaxonomy() })
+onMounted(() => { void loadTaxonomy(); void loadContacts() })
 watch(() => route.query, () => {
   if (route.name !== 'home') return
   const normalized = articleQuery(queryState.value)
@@ -105,7 +118,7 @@ watch(() => route.query, () => {
   keyword.value = queryState.value.q
   void load()
 }, { immediate: true })
-onBeforeUnmount(() => { requestId++ })
+onBeforeUnmount(() => { active = false; requestId++ })
 </script>
 
 <template>
@@ -238,6 +251,7 @@ onBeforeUnmount(() => { requestId++ })
           <h2 id="about-heading">思考，不止于此。</h2>
           <p>这里是 SudoThink，一处存放技术手记、实践经验与日常思考的地方。</p>
           <p>相信写下来，才能想得更清楚。也希望这些文字，能为你带来一点新的启发。</p>
+          <ContactLinks v-if="contactSettings" :contacts="contactSettings" />
         </section>
 
         <section v-if="tags.length" class="tag-index" aria-labelledby="tag-heading">

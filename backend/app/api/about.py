@@ -6,14 +6,17 @@ from app.models.about import AboutPage
 
 bp = Blueprint("about", url_prefix="/about")
 
+CONTACT_FIELDS = ("github_url", "email", "x_url", "facebook_url", "instagram_url")
+
 
 def _about_dict(page: AboutPage | None) -> dict:
     if page is None:
-        return {"id": 1, "title": "关于我", "content": "", "updated_at": None}
+        return {"id": 1, "title": "关于我", "content": "", "updated_at": None, **dict.fromkeys(CONTACT_FIELDS, "")}
     return {
         "id": page.id,
         "title": page.title,
         "content": page.content,
+        **{name: getattr(page, name) for name in CONTACT_FIELDS},
         "updated_at": page.updated_at.isoformat(),
     }
 

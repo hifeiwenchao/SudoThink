@@ -123,6 +123,25 @@ async def _upgrade_article_deleted_at(connection) -> None:
         await connection.execute_script("ALTER TABLE `articles` " + ", ".join(changes))
 
 
+async def _upgrade_about_contacts(connection) -> None:
+    """Add public contact settings while retaining the saved biography."""
+    columns = await connection.execute_query_dict(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS "
+        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'about_pages'"
+    )
+    existing = {column["COLUMN_NAME"] for column in columns}
+    additions = {
+        "github_url": "VARCHAR(512) NOT NULL DEFAULT '' COMMENT 'GitHub 主页'",
+        "email": "VARCHAR(254) NOT NULL DEFAULT '' COMMENT '公开联系邮箱'",
+        "x_url": "VARCHAR(512) NOT NULL DEFAULT '' COMMENT 'X 主页'",
+        "facebook_url": "VARCHAR(512) NOT NULL DEFAULT '' COMMENT 'Facebook 主页'",
+        "instagram_url": "VARCHAR(512) NOT NULL DEFAULT '' COMMENT 'Instagram 主页'",
+    }
+    changes = [f"ADD COLUMN `{name}` {definition}" for name, definition in additions.items() if name not in existing]
+    if changes:
+        await connection.execute_script("ALTER TABLE `about_pages` " + ", ".join(changes))
+
+
 async def upgrade_site_content_schema() -> None:
     """Create missing tables and upgrade legacy columns without replacing data.
 
@@ -152,3 +171,4 @@ async def upgrade_site_content_schema() -> None:
     await _upgrade_guest_comments(connection)
     await _upgrade_todos(connection)
     await _upgrade_article_deleted_at(connection)
+    await _upgrade_about_contacts(connection)
